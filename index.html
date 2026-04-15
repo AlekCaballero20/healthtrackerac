@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="App web de seguimiento integral de salud para Alek y Cata."
+    />
+    <meta name="theme-color" content="#f4f1ff" />
+    <title>Bienestar Alek &amp; Cata</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+
+  <body>
+    <noscript>
+      <div class="noscript-banner">
+        Esta app necesita JavaScript activado. Sí, otra pequeña dependencia moderna
+        para que todo deje de hacerse a punta de papelitos.
+      </div>
+    </noscript>
+
+    <div class="app-shell" id="appShell" data-shell-state="booting">
+      <header class="topbar" id="topbar">
+        <div class="topbar-brand">
+          <p class="eyebrow">Seguimiento privado y cotidiano</p>
+          <h1>Bienestar Alek &amp; Cata</h1>
+          <p class="topbar-copy">
+            Una base clara para registrar síntomas, citas, controles, tratamientos y
+            evolución sin convertir la salud en una tortura administrativa.
+          </p>
+        </div>
+
+        <div class="topbar-meta">
+          <section class="session-card" id="sessionCard" aria-live="polite">
+            <p class="session-label">Sesión</p>
+            <p class="session-user" id="sessionUser">Verificando acceso...</p>
+
+            <div class="session-actions">
+              <button
+                type="button"
+                class="primary-button"
+                data-auth-action="login"
+                id="loginButton"
+              >
+                Ingresar con Google
+              </button>
+
+              <button
+                type="button"
+                class="ghost-button"
+                data-auth-action="logout"
+                id="logoutButton"
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          </section>
+
+          <div class="topbar-actions">
+            <label class="field compact-field">
+              <span>Vista</span>
+              <select id="profileSelector" aria-label="Seleccionar perfil">
+                <option value="all">Todos</option>
+              </select>
+            </label>
+
+            <div class="header-buttons">
+              <button
+                type="button"
+                class="ghost-button"
+                data-action="export-data"
+              >
+                Exportar JSON
+              </button>
+
+              <button
+                type="button"
+                class="ghost-button"
+                data-action="reset-data"
+                data-dev-only="true"
+                hidden
+              >
+                Restaurar ejemplo
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section
+        class="shell-state shell-state--boot"
+        id="bootState"
+        aria-live="polite"
+      >
+        <div class="state-card">
+          <p class="eyebrow">Cargando</p>
+          <h2>Preparando la app</h2>
+          <p>
+            Estamos validando sesión y trayendo la información. Un segundo, que ni
+            siquiera Firebase se despierta instantáneamente.
+          </p>
+        </div>
+      </section>
+
+      <section
+        class="shell-state shell-state--auth"
+        id="authState"
+        aria-live="polite"
+        hidden
+      >
+        <div class="state-card state-card--auth">
+          <p class="eyebrow">Acceso privado</p>
+          <h2>Entren con la cuenta autorizada</h2>
+          <p>
+            Esta app está restringida para Alek y Cata. Inicien sesión con Google
+            para cargar sus datos y continuar.
+          </p>
+
+          <div class="state-actions">
+            <button
+              type="button"
+              class="primary-button"
+              data-auth-action="login"
+            >
+              Continuar con Google
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="shell-state shell-state--blocked"
+        id="blockedState"
+        aria-live="polite"
+        hidden
+      >
+        <div class="state-card state-card--blocked">
+          <p class="eyebrow">Acceso restringido</p>
+          <h2>Esta cuenta no tiene permiso</h2>
+          <p>
+            La sesión actual no está dentro de los correos autorizados para esta app.
+            Cierren sesión e ingresen con la cuenta correcta.
+          </p>
+
+          <div class="state-actions">
+            <button
+              type="button"
+              class="ghost-button"
+              data-auth-action="logout"
+            >
+              Salir
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div class="app-stage" id="appStage" hidden>
+        <nav
+          class="main-nav"
+          id="mainNav"
+          aria-label="Navegación principal"
+        ></nav>
+
+        <section class="hero-panel" id="heroPanel"></section>
+
+        <main id="app" tabindex="-1"></main>
+      </div>
+    </div>
+
+    <template id="emptyStateTemplate">
+      <div class="empty-state">
+        <h3>Sin registros todavía</h3>
+        <p>
+          Apenas están empezando. El espacio ya quedó listo para ordenar síntomas,
+          citas, controles y notas sin perderse entre recuerdos vagos y capturas
+          sueltas.
+        </p>
+      </div>
+    </template>
+
+    <template id="bootStateTemplate">
+      <div class="state-card">
+        <p class="eyebrow">Cargando</p>
+        <h2>Preparando la app</h2>
+        <p>
+          Estamos validando la sesión y cargando los datos. Un momento.
+        </p>
+      </div>
+    </template>
+
+    <template id="authStateTemplate">
+      <div class="state-card state-card--auth">
+        <p class="eyebrow">Acceso privado</p>
+        <h2>Entren con la cuenta autorizada</h2>
+        <p>
+          Esta app está restringida para Alek y Cata. Inicien sesión con Google para
+          continuar.
+        </p>
+
+        <div class="state-actions">
+          <button
+            type="button"
+            class="primary-button"
+            data-auth-action="login"
+          >
+            Continuar con Google
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <template id="blockedStateTemplate">
+      <div class="state-card state-card--blocked">
+        <p class="eyebrow">Acceso restringido</p>
+        <h2>Esta cuenta no tiene permiso</h2>
+        <p>
+          La sesión actual no corresponde a uno de los correos autorizados.
+        </p>
+
+        <div class="state-actions">
+          <button
+            type="button"
+            class="ghost-button"
+            data-auth-action="logout"
+          >
+            Salir
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
