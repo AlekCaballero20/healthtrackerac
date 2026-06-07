@@ -1,231 +1,258 @@
-import { renderApp, getDerivedDefaultsForCheckup } from "./ui/render.js";
-import {
-  getState,
-  subscribe,
-  setActiveView,
-  setSelectedProfile,
-  setTimelineFilters,
-  mutateData,
-  setToast
-} from "./state/store.js";
-import { exportData } from "./services/backup.service.js";
+// Controlador de la app: arranque, eventos, acciones y orquestación del render.
+// La lógica vive en módulos: utils, state, domain, records, views, firebase.
+
+import { APP_CONFIG } from "./config.js";
 import {
   createRecord,
+  deleteAttachment,
+  importRecords,
+  isAllowedEmail,
+  isDemoMode,
+  loadAllData,
+  loginWithGoogle,
+  logoutCurrentUser,
+  observeSession,
+  removeRecord,
   updateRecord,
-  deleteRecord
-} from "./services/firestore.service.js";
-import { uid, calculateNextDate } from "./services/health.service.js";
+  uploadAttachment
+} from "./firebase.js";
+import {
+  $,
+  $$,
+  calculateNextDate,
+  getFormData,
+  setToastZone,
+  toast,
+  todayISO
+} from "./utils.js";
+import { emptyData, normalizeData, state } from "./state.js";
+import {
+  activeSymptoms,
+  buildTimeline,
+  dueCheckups,
+  upcomingAppointments
+} from "./domain.js";
+import {
+  COLLECTION_BY_TYPE,
+  NAV_ITEMS,
+  RECORD_TYPES,
+  buildRecord,
+  preferredTypeForView,
+  renderRecordForm,
+  typeForCollection
+} from "./records.js";
+import {
+  renderAuthState,
+  renderBlockedState,
+  renderErrorState,
+  renderLoading,
+  renderQuickCheckin,
+  renderView
+} from "./views.js";
 
-const COLLECTIONS = Object.freeze({
-  BODY: "bodyStatusEntries",
-  SYMPTOMS: "symptoms",
-  APPOINTMENTS: "appointments",
-  CHECKUPS: "checkups",
-  TREATMENTS: "treatments",
-  NOTES: "notes"
-});
+const refs = {
+  app: $("#app"),
+  quickCheckin: $("#quickCheckin"),
+  nav: $("#mainNav"),
+  statusBanner: $("#statusBanner"),
+  profileSelector: $("#profileSelector"),
+  viewEyebrow: $("#viewEyebrow"),
+  viewTitle: $("#viewTitle"),
+  viewSubtitle: $("#viewSubtitle"),
+  sessionLabel: $("#sessionLabel"),
+  sessionHint: $("#sessionHint"),
+  recordDialog: $("#recordDialog"),
+  recordTypeGrid: $("#recordTypeGrid"),
+  recordFormMount: $("#recordFormMount"),
+  dialogTitle: $("#dialogTitle"),
+  importDialog: $("#importDialog"),
+  importJson: $("#importJson"),
+  toastZone: $("#toastZone")
+};
 
-let appInitialized = false;
-let renderSubscribed = false;
+setToastZone(refs.toastZone);
+boot();
 
-export function initApp() {
-  if (!renderSubscribed) {
-    subscribe(renderApp);
-    renderSubscribed = true;
-  }
+function boot() {
+  bindEvents();
+  render();
+  observeSession(handleSession);
+}
 
-  renderApp(getState());
-
-  if (appInitialized) return;
-  appInitialized = true;
-
+function bindEvents() {
   document.addEventListener("click", handleClick);
+  document.addEventListener("input", handleInput);
   document.addEventListener("change", handleChange);
   document.addEventListener("submit", handleSubmit);
-  document.addEventListener("input", handleInput);
 }
+
+// --- Sesión / datos ---
+
+async function handleSession(user) {
+  state.user = user;
+  state.authReady = true;
+  state.allowed = Boolean(user && isAllowedEmail(user.email));
+
+  if (!user) {
+    state.loading = false;
+    state.data = emptyData();
+    render();
+    return;
+  }
+
+  if (!state.allowed) {
+    state.loading = false;
+    state.data = emptyData();
+    render();
+    toast("Acceso restringido", "Esta cuenta no está autorizada para la app.", "danger");
+    return;
+  }
+
+  await refreshData("Datos cargados", false);
+}
+
+async function refreshData(successMessage = "Datos actualizados", showToast = true) {
+  state.loading = true;
+  state.error = null;
+  render();
+
+  try {
+    state.data = normalizeData(await loadAllData());
+    state.loading = false;
+    state.error = null;
+    if (showToast) toast(successMessage, "La información quedó sincronizada.", "success");
+  } catch (error) {
+    console.error(error);
+    state.loading = false;
+    state.error = error?.message || "No se pudieron cargar los datos.";
+    toast("No se pudo cargar", state.error, "danger");
+  }
+
+  render();
+}
+
+function findRecord(collection, id) {
+  return (state.data[collection] || []).find((item) => item.id === id) || null;
+}
+
+// --- Eventos ---
 
 async function handleClick(event) {
-  const viewButton = event.target.closest("[data-view]");
-  if (viewButton) {
-    setActiveView(viewButton.dataset.view);
+  const nav = event.target.closest("[data-view]");
+  if (nav) {
+    state.activeView = nav.dataset.view;
+    render();
+    refs.app?.focus();
     return;
   }
 
-  const actionButton = event.target.closest("[data-action]");
-  if (!actionButton) return;
-
-  const { action, id, collection } = actionButton.dataset;
-
-  switch (action) {
-    case "export-data":
-      handleExportData();
-      return;
-
-    case "reset-data":
-      handleControlledSeedNotice();
-      return;
-
-    case "resolve-symptom":
-      await withActionLock(actionButton, async () => {
-        await patchRecordStatus({
-          collection: COLLECTIONS.SYMPTOMS,
-          id,
-          patch: { status: "resuelto" },
-          successToast: {
-            title: "Síntoma actualizado",
-            message: "Quedó marcado como resuelto.",
-            type: "success"
-          }
-        });
-      });
-      return;
-
-    case "complete-appointment":
-      await withActionLock(actionButton, async () => {
-        await patchRecordStatus({
-          collection: COLLECTIONS.APPOINTMENTS,
-          id,
-          patch: { status: "realizada" },
-          successToast: {
-            title: "Cita actualizada",
-            message: "Quedó marcada como realizada.",
-            type: "success"
-          }
-        });
-      });
-      return;
-
-    case "cancel-appointment":
-      await withActionLock(actionButton, async () => {
-        await patchRecordStatus({
-          collection: COLLECTIONS.APPOINTMENTS,
-          id,
-          patch: { status: "cancelada" },
-          successToast: {
-            title: "Cita cancelada",
-            message: "El registro sigue en historial, pero su estado ya quedó claro.",
-            type: "warning"
-          }
-        });
-      });
-      return;
-
-    case "mark-checkup-done":
-      await withActionLock(actionButton, async () => {
-        const record = findRecord(COLLECTIONS.CHECKUPS, id);
-        if (!record) {
-          throw new Error("No encontré el control que intentabas actualizar.");
-        }
-
-        const today = todayISO();
-        await updateEntityRecord({
-          collection: COLLECTIONS.CHECKUPS,
-          id,
-          patch: {
-            lastDoneDate: today,
-            idealNextDate: calculateNextDate(today, record.frequencyMonths),
-            status: "al día"
-          },
-          successToast: {
-            title: "Control actualizado",
-            message: "Ahora quedó al día y con nueva fecha sugerida.",
-            type: "success"
-          }
-        });
-      });
-      return;
-
-    case "toggle-treatment":
-      await withActionLock(actionButton, async () => {
-        const record = findRecord(COLLECTIONS.TREATMENTS, id);
-        if (!record) {
-          throw new Error("No encontré el tratamiento que intentabas actualizar.");
-        }
-
-        await updateEntityRecord({
-          collection: COLLECTIONS.TREATMENTS,
-          id,
-          patch: { active: !record.active },
-          successToast: {
-            title: "Tratamiento actualizado",
-            message: "Se cambió el estado del tratamiento.",
-            type: "success"
-          }
-        });
-      });
-      return;
-
-    case "toggle-reviewed":
-      await withActionLock(actionButton, async () => {
-        const record = findRecord(COLLECTIONS.BODY, id);
-        if (!record) {
-          throw new Error("No encontré el registro corporal que intentabas actualizar.");
-        }
-
-        await updateEntityRecord({
-          collection: COLLECTIONS.BODY,
-          id,
-          patch: { reviewed: !record.reviewed },
-          successToast: {
-            title: "Registro corporal actualizado",
-            message: "Se cambió el estado de revisión.",
-            type: "success"
-          }
-        });
-      });
-      return;
-
-    case "delete-item":
-      await withActionLock(actionButton, async () => {
-        await removeEntityRecord({
-          collection,
-          id,
-          successToast: {
-            title: "Registro eliminado",
-            message: "El elemento se eliminó correctamente.",
-            type: "warning"
-          }
-        });
-      });
-      return;
-
-    default:
-      return;
-  }
-}
-
-function handleChange(event) {
-  const target = event.target;
-
-  if (target.id === "profileSelector") {
-    setSelectedProfile(target.value);
+  const authButton = event.target.closest("[data-auth]");
+  if (authButton) {
+    if (authButton.dataset.auth === "login") await doLogin(authButton);
+    if (authButton.dataset.auth === "logout") await doLogout(authButton);
     return;
   }
 
-  if (target.id === "timelineType") {
-    setTimelineFilters({ type: target.value });
-    return;
-  }
+  const action = event.target.closest("[data-action]");
+  if (!action) return;
 
-  if (target.name === "frequencyMonths" || target.name === "lastDoneDate") {
-    const form = target.closest("form");
-    if (form?.id === "checkupForm") {
-      getDerivedDefaultsForCheckup(form);
+  const { action: actionName, id, collection, status, type, metric, index } = action.dataset;
+
+  try {
+    switch (actionName) {
+      case "open-create":
+        openRecordDialog(type || preferredTypeForView());
+        break;
+      case "edit-record":
+        openEditDialog(collection, id);
+        break;
+      case "close-dialog":
+        closeRecordDialog();
+        break;
+      case "select-record-type":
+        state.activeRecordType = type;
+        renderRecordDialog();
+        break;
+      case "set-chart-metric":
+        state.trackingMetric = metric;
+        render();
+        break;
+      case "delete-record":
+        await deleteEntity(collection, id);
+        break;
+      case "remove-attachment":
+        await removeAttachment(collection, id, Number(index));
+        break;
+      case "set-status":
+        await setEntityStatus(collection, id, status);
+        break;
+      case "mark-checkup-done":
+        await markCheckupDone(id);
+        break;
+      case "toggle-treatment":
+        await toggleTreatment(id);
+        break;
+      case "log-dose":
+        await logDose(id);
+        break;
+      case "export-json":
+        exportJson();
+        break;
+      case "open-import":
+        refs.importDialog.showModal();
+        break;
+      case "close-import":
+        refs.importDialog.close();
+        break;
+      case "import-json":
+        await doImportJson();
+        break;
+      case "load-demo-reset":
+        localStorage.removeItem("healthtrackerac-demo-data-v2");
+        await refreshData("Demo restaurado");
+        break;
+      case "reload":
+        location.reload();
+        break;
+      default:
+        break;
     }
+  } catch (error) {
+    console.error(error);
+    toast("Algo falló", error?.message || "No se pudo completar la acción.", "danger");
   }
 }
 
 function handleInput(event) {
-  const target = event.target;
-
-  if (target.id === "timelineSearch") {
-    setTimelineFilters({ search: target.value });
-    return;
+  if (event.target.matches("input[type='range']")) {
+    const output = event.target.closest(".range-row")?.querySelector(".range-value");
+    if (output) output.textContent = event.target.value;
   }
 
-  if (target.id === "timelineType") {
-    setTimelineFilters({ type: target.value });
+  if (event.target.id === "timelineSearch") {
+    state.timelineSearch = event.target.value;
+    render();
+  }
+}
+
+function handleChange(event) {
+  if (event.target.id === "profileSelector") {
+    state.selectedProfileId = event.target.value;
+    render();
+  }
+
+  if (event.target.id === "timelineType") {
+    state.timelineType = event.target.value;
+    render();
+  }
+
+  if (event.target.name === "lastDoneDate" || event.target.name === "frequencyMonths") {
+    const form = event.target.closest("form");
+    if (form?.id === "recordForm" && form.dataset.recordType === "checkup") {
+      const lastDone = form.lastDoneDate.value;
+      const months = Number(form.frequencyMonths.value || 0);
+      if (lastDone && months) form.idealNextDate.value = calculateNextDate(lastDone, months);
+    }
   }
 }
 
@@ -233,465 +260,339 @@ async function handleSubmit(event) {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
 
-  event.preventDefault();
-
-  const formData = Object.fromEntries(new FormData(form).entries());
-
-  await withFormLock(form, async () => {
-    switch (form.id) {
-      case "bodyForm":
-        await createBodyEntry(formData, form);
-        return;
-      case "symptomForm":
-        await createSymptom(formData, form);
-        return;
-      case "appointmentForm":
-        await createAppointment(formData, form);
-        return;
-      case "checkupForm":
-        await createCheckup(formData, form);
-        return;
-      case "treatmentForm":
-        await createTreatment(formData, form);
-        return;
-      case "noteForm":
-        await createNote(formData, form);
-        return;
-      default:
-        return;
-    }
-  });
-}
-
-function handleExportData() {
-  const state = getState();
-
-  if (!state.app?.isDataReady) {
-    setToast({
-      title: "Datos no disponibles",
-      message: "Todavía no hay información cargada para exportar.",
-      type: "warning"
-    });
+  if (form.id === "quickCheckinForm") {
+    event.preventDefault();
+    await saveQuickCheckin(form);
     return;
   }
 
-  exportData(state.data);
-
-  setToast({
-    title: "Backup exportado",
-    message: "Se descargó el JSON actual de la app.",
-    type: "success"
-  });
+  if (form.id === "recordForm") {
+    event.preventDefault();
+    await saveRecordForm(form);
+  }
 }
 
-function handleControlledSeedNotice() {
-  setToast({
-    title: "Seed controlado pendiente",
-    message:
-      "Este botón quedó reservado para una carga inicial controlada en Firestore. No hace restore local.",
-    type: "warning"
-  });
+async function doLogin(button) {
+  button.disabled = true;
+  try {
+    await loginWithGoogle();
+  } finally {
+    button.disabled = false;
+  }
 }
 
-async function createBodyEntry(data, form) {
-  const profileId = requireProfileId(data.profileId);
-  const now = nowISO();
+async function doLogout(button) {
+  button.disabled = true;
+  try {
+    await logoutCurrentUser();
+    state.user = null;
+    state.allowed = false;
+    state.data = emptyData();
+    toast("Sesión cerrada", "Listo, la app quedó cerrada.", "success");
+  } finally {
+    button.disabled = false;
+    render();
+  }
+}
 
-  const record = {
-    id: uid("body"),
-    profileId,
-    bodyPart: requiredText(data.bodyPart, "Debes elegir una parte del cuerpo."),
-    status: requiredText(data.status, "Debes elegir un estado actual."),
-    symptom: requiredText(data.symptom, "Debes escribir la molestia o síntoma."),
-    intensity: toNumber(data.intensity, 1),
-    frequency: requiredText(data.frequency, "Debes elegir la frecuencia."),
-    startDate: requiredText(data.startDate, "Debes indicar la fecha de inicio."),
-    observations: optionalText(data.observations),
-    requiresAppointment: Boolean(form.requiresAppointment?.checked),
-    reviewed: Boolean(form.reviewed?.checked),
-    createdAt: now,
-    updatedAt: now
+// --- Render ---
+
+function render() {
+  renderShellState();
+  renderNav();
+  renderProfileSelector();
+  renderHeader();
+
+  if (!state.authReady || state.loading) {
+    refs.quickCheckin.innerHTML = "";
+    refs.app.innerHTML = renderLoading();
+    return;
+  }
+
+  if (!state.user) {
+    refs.quickCheckin.innerHTML = "";
+    refs.app.innerHTML = renderAuthState();
+    return;
+  }
+
+  if (!state.allowed) {
+    refs.quickCheckin.innerHTML = "";
+    refs.app.innerHTML = renderBlockedState();
+    return;
+  }
+
+  if (state.error) {
+    refs.quickCheckin.innerHTML = "";
+    refs.app.innerHTML = renderErrorState(state.error);
+    return;
+  }
+
+  refs.quickCheckin.innerHTML = renderQuickCheckin();
+  refs.app.innerHTML = renderView();
+}
+
+function renderShellState() {
+  $$('[data-auth="login"]').forEach((button) => (button.hidden = Boolean(state.user)));
+  $$('[data-auth="logout"]').forEach((button) => (button.hidden = !state.user));
+
+  if (!state.authReady) {
+    refs.sessionLabel.textContent = "Verificando acceso...";
+    refs.sessionHint.textContent = isDemoMode ? "Modo demo" : "Conectando con Firebase";
+    refs.statusBanner.textContent = "Preparando la app...";
+    refs.statusBanner.className = "status-banner";
+    return;
+  }
+
+  if (!state.user) {
+    refs.sessionLabel.textContent = "Sin sesión";
+    refs.sessionHint.textContent = "Ingresa con Google para cargar datos";
+    refs.statusBanner.textContent = "Inicia sesión para usar la app.";
+    refs.statusBanner.className = "status-banner warning";
+    return;
+  }
+
+  refs.sessionLabel.textContent = state.user.displayName || state.user.email || "Sesión activa";
+  refs.sessionHint.textContent = isDemoMode ? "Modo demo local" : state.user.email || "Cuenta conectada";
+
+  if (!state.allowed) {
+    refs.statusBanner.textContent = "Esta cuenta no está dentro de los correos autorizados.";
+    refs.statusBanner.className = "status-banner danger";
+    return;
+  }
+
+  if (isDemoMode) {
+    refs.statusBanner.textContent = "Modo demo activo: los datos se guardan en este navegador.";
+    refs.statusBanner.className = "status-banner warning";
+    return;
+  }
+
+  refs.statusBanner.textContent = "";
+  refs.statusBanner.className = "status-banner";
+}
+
+function renderNav() {
+  const counts = getNavCounts();
+  refs.nav.innerHTML = NAV_ITEMS.map((item) => `
+    <button type="button" class="nav-button ${state.activeView === item.id ? "active" : ""}" data-view="${item.id}">
+      <span class="nav-icon">${item.icon}</span>
+      <span class="nav-label">${item.label}</span>
+      ${counts[item.id] ? `<span class="nav-count">${counts[item.id]}</span>` : ""}
+    </button>
+  `).join("");
+}
+
+function getNavCounts() {
+  const data = state.selectedProfileId === "all" ? state.data : scopedForCounts();
+  return {
+    tracking: data.dailyLogs.length,
+    symptoms: activeSymptoms(data).length,
+    appointments: upcomingAppointments(data).length + dueCheckups(data).length,
+    timeline: buildTimeline(data).length
   };
-
-  await createEntityRecord({
-    collection: COLLECTIONS.BODY,
-    record,
-    successToast: {
-      title: "Registro guardado",
-      message: "La parte del cuerpo quedó registrada correctamente.",
-      type: "success"
-    },
-    onSuccess: () => form.reset()
-  });
 }
 
-async function createSymptom(data, form) {
-  const profileId = requireProfileId(data.profileId);
-  const now = nowISO();
-
-  const record = {
-    id: uid("sym"),
-    profileId,
-    name: requiredText(data.name, "Debes escribir el nombre del síntoma."),
-    bodyPart: requiredText(data.bodyPart, "Debes elegir la parte del cuerpo relacionada."),
-    intensity: toNumber(data.intensity, 1),
-    duration: requiredText(data.duration, "Debes escribir la duración."),
-    frequency: requiredText(data.frequency, "Debes elegir la frecuencia."),
-    startDate: requiredText(data.startDate, "Debes indicar la fecha de inicio."),
-    triggers: optionalText(data.triggers),
-    trend: optionalText(data.trend),
-    notes: optionalText(data.notes),
-    status: requiredText(data.status, "Debes elegir el estado del síntoma."),
-    createdAt: now,
-    updatedAt: now
-  };
-
-  await createEntityRecord({
-    collection: COLLECTIONS.SYMPTOMS,
-    record,
-    successToast: {
-      title: "Síntoma guardado",
-      message: "Ya quedó listo para historial, alertas y dashboard.",
-      type: "success"
-    },
-    onSuccess: () => form.reset()
+function scopedForCounts() {
+  const scoped = emptyData();
+  APP_CONFIG.collections.forEach((name) => {
+    scoped[name] = (state.data[name] || []).filter((item) => item.profileId === state.selectedProfileId);
   });
+  return scoped;
 }
 
-async function createAppointment(data, form) {
-  const profileId = requireProfileId(data.profileId);
-  const now = nowISO();
-
-  const record = {
-    id: uid("apt"),
-    profileId,
-    specialty: requiredText(data.specialty, "Debes elegir la especialidad."),
-    doctor: optionalText(data.doctor),
-    date: requiredText(data.date, "Debes indicar la fecha de la cita."),
-    time: requiredText(data.time, "Debes indicar la hora de la cita."),
-    location: optionalText(data.location),
-    reason: requiredText(data.reason, "Debes escribir el motivo de la cita."),
-    status: requiredText(data.status, "Debes elegir el estado de la cita."),
-    result: optionalText(data.result),
-    nextSteps: optionalText(data.nextSteps),
-    notes: optionalText(data.notes),
-    createdAt: now,
-    updatedAt: now
-  };
-
-  await createEntityRecord({
-    collection: COLLECTIONS.APPOINTMENTS,
-    record,
-    successToast: {
-      title: "Cita guardada",
-      message: "La agenda médica ya quedó actualizada.",
-      type: "success"
-    },
-    onSuccess: () => form.reset()
-  });
+function renderProfileSelector() {
+  const options = [
+    `<option value="all" ${state.selectedProfileId === "all" ? "selected" : ""}>Vista compartida</option>`,
+    ...state.data.profiles.map((profile) => `<option value="${profile.id}" ${state.selectedProfileId === profile.id ? "selected" : ""}>${profile.name}</option>`)
+  ];
+  refs.profileSelector.innerHTML = options.join("");
+  refs.profileSelector.disabled = !state.user || !state.allowed || state.loading;
 }
 
-async function createCheckup(data, form) {
-  const profileId = requireProfileId(data.profileId);
-  const now = nowISO();
-  const frequencyMonths = toNumber(data.frequencyMonths, 1);
-  const lastDoneDate = requiredText(
-    data.lastDoneDate,
-    "Debes indicar la última vez realizado."
-  );
-  const idealNextDate =
-    optionalText(data.idealNextDate) || calculateNextDate(lastDoneDate, frequencyMonths);
-
-  const record = {
-    id: uid("chk"),
-    profileId,
-    name: requiredText(data.name, "Debes elegir el nombre del control."),
-    frequencyMonths,
-    lastDoneDate,
-    idealNextDate,
-    status: requiredText(data.status, "Debes elegir el estado del control."),
-    observations: optionalText(data.observations),
-    priority: requiredText(data.priority, "Debes elegir la prioridad."),
-    createdAt: now,
-    updatedAt: now
-  };
-
-  await createEntityRecord({
-    collection: COLLECTIONS.CHECKUPS,
-    record,
-    successToast: {
-      title: "Control guardado",
-      message: "Ya aparece en pendientes y alertas cuando corresponda.",
-      type: "success"
-    },
-    onSuccess: () => form.reset()
-  });
+function renderHeader() {
+  const item = NAV_ITEMS.find((nav) => nav.id === state.activeView) || NAV_ITEMS[0];
+  refs.viewEyebrow.textContent = APP_CONFIG.version;
+  refs.viewTitle.textContent = item.title;
+  refs.viewSubtitle.textContent = item.subtitle;
 }
 
-async function createTreatment(data, form) {
-  const profileId = requireProfileId(data.profileId);
-  const now = nowISO();
+// --- Diálogo de registro (crear / editar) ---
 
-  const record = {
-    id: uid("trt"),
-    profileId,
-    medication: requiredText(
-      data.medication,
-      "Debes escribir el medicamento o tratamiento."
-    ),
-    dosage: requiredText(data.dosage, "Debes escribir la dosis."),
-    schedule: requiredText(data.schedule, "Debes escribir el horario."),
-    reason: requiredText(data.reason, "Debes escribir el motivo."),
-    startDate: requiredText(data.startDate, "Debes indicar la fecha de inicio."),
-    endDate: optionalText(data.endDate),
-    active: Boolean(form.active?.checked),
-    indications: optionalText(data.indications),
-    sideEffects: optionalText(data.sideEffects),
-    notes: optionalText(data.notes),
-    createdAt: now,
-    updatedAt: now
-  };
-
-  await createEntityRecord({
-    collection: COLLECTIONS.TREATMENTS,
-    record,
-    successToast: {
-      title: "Tratamiento guardado",
-      message: "Quedó en seguimiento y visible en el resumen.",
-      type: "success"
-    },
-    onSuccess: () => form.reset()
-  });
+function openRecordDialog(type = "daily") {
+  state.editingId = null;
+  state.editingCollection = null;
+  state.activeRecordType = type;
+  renderRecordDialog();
+  refs.recordDialog.showModal();
 }
 
-async function createNote(data, form) {
-  const profileId = requireProfileId(data.profileId);
-  const now = nowISO();
-
-  const record = {
-    id: uid("note"),
-    profileId,
-    title: requiredText(data.title, "Debes escribir el título de la nota."),
-    moodTag: optionalText(data.moodTag),
-    content: requiredText(data.content, "Debes escribir el contenido de la nota."),
-    createdAt: now,
-    updatedAt: now
-  };
-
-  await createEntityRecord({
-    collection: COLLECTIONS.NOTES,
-    record,
-    successToast: {
-      title: "Nota guardada",
-      message: "Ya quedó dentro del historial y el perfil correspondiente.",
-      type: "success"
-    },
-    onSuccess: () => form.reset()
-  });
+function openEditDialog(collection, id) {
+  const record = findRecord(collection, id);
+  if (!record) {
+    toast("No encontrado", "No pude ubicar ese registro para editar.", "danger");
+    return;
+  }
+  state.editingId = id;
+  state.editingCollection = collection;
+  state.activeRecordType = typeForCollection(collection);
+  renderRecordDialog();
+  refs.recordDialog.showModal();
 }
 
-async function createEntityRecord({ collection, record, successToast, onSuccess }) {
-  ensureWritableState();
-  ensureValidCollection(collection);
+function closeRecordDialog() {
+  state.editingId = null;
+  state.editingCollection = null;
+  refs.recordDialog.close();
+}
 
+function renderRecordDialog() {
+  const isEditing = Boolean(state.editingId);
+  const typeMeta = RECORD_TYPES.find((item) => item.id === state.activeRecordType);
+  refs.dialogTitle.textContent = isEditing ? `Editar ${typeMeta?.label || "registro"}` : (typeMeta?.label || "Registrar");
+
+  // Al editar no se puede cambiar el tipo de registro: ocultamos el selector.
+  if (isEditing) {
+    refs.recordTypeGrid.innerHTML = "";
+    refs.recordTypeGrid.hidden = true;
+  } else {
+    refs.recordTypeGrid.hidden = false;
+    refs.recordTypeGrid.innerHTML = RECORD_TYPES.map((item) => `
+      <button type="button" class="type-card ${state.activeRecordType === item.id ? "active" : ""}" data-action="select-record-type" data-type="${item.id}">
+        <strong>${item.icon} ${item.label}</strong>
+        <small>${item.hint}</small>
+      </button>
+    `).join("");
+  }
+
+  const values = isEditing ? findRecord(state.editingCollection, state.editingId) : null;
+  refs.recordFormMount.innerHTML = renderRecordForm(state.activeRecordType, values);
+}
+
+// --- Guardado ---
+
+async function uploadFormAttachments(form, type) {
+  const fileInput = form.querySelector('input[name="attachments"]');
+  if (!fileInput?.files?.length) return [];
+  const folder = COLLECTION_BY_TYPE[type];
+  const uploaded = [];
+  for (const file of fileInput.files) {
+    uploaded.push(await uploadAttachment(file, folder));
+  }
+  return uploaded;
+}
+
+async function saveQuickCheckin(form) {
+  const data = getFormData(form);
+  const record = buildRecord("daily", data);
+  await createRecord("dailyLogs", record);
+  form.reset();
+  await refreshData("Check-in guardado", false);
+  toast("Check-in guardado", "El registro diario quedó listo.", "success");
+}
+
+async function saveRecordForm(form) {
+  const type = form.dataset.recordType || state.activeRecordType;
+  const collection = COLLECTION_BY_TYPE[type];
+  const data = getFormData(form);
+  const existing = state.editingId ? findRecord(collection, state.editingId) : null;
+  const record = buildRecord(type, data, existing);
+
+  const uploaded = await uploadFormAttachments(form, type);
+  if (uploaded.length) {
+    record.attachments = [...(record.attachments || []), ...uploaded];
+  }
+
+  // setDoc completo: sirve igual para crear y para editar (reemplaza el doc).
   await createRecord(collection, record);
+  closeRecordDialog();
+  await refreshData(existing ? "Cambios guardados" : "Registro guardado", false);
+  toast(existing ? "Registro actualizado" : "Registro guardado", "La información quedó sincronizada.", "success");
+}
 
-  mutateData((data) => {
-    data[collection] = [record, ...data[collection]];
-    return data;
+// --- Acciones sobre registros ---
+
+async function deleteEntity(collection, id) {
+  if (!collection || !id) return;
+  if (!window.confirm("¿Eliminar este registro? No es dramático, pero sí definitivo en Firebase.")) return;
+
+  const record = findRecord(collection, id);
+  await Promise.all((record?.attachments || []).map((file) => deleteAttachment(file.path)));
+  await removeRecord(collection, id);
+  await refreshData("Registro eliminado", false);
+  toast("Registro eliminado", "Se eliminó correctamente.", "warning");
+}
+
+async function removeAttachment(collection, id, index) {
+  const record = findRecord(collection, id);
+  if (!record || !Array.isArray(record.attachments)) return;
+  const file = record.attachments[index];
+  if (!file) return;
+  if (!window.confirm(`¿Quitar el adjunto "${file.name || "archivo"}"?`)) return;
+
+  await deleteAttachment(file.path);
+  const attachments = record.attachments.filter((_, position) => position !== index);
+  await updateRecord(collection, id, { attachments });
+  await refreshData("Adjunto eliminado", false);
+  toast("Adjunto eliminado", "El archivo se quitó del registro.", "warning");
+}
+
+async function setEntityStatus(collection, id, status) {
+  await updateRecord(collection, id, { status });
+  await refreshData("Estado actualizado", false);
+  toast("Estado actualizado", "El registro cambió de estado.", "success");
+}
+
+async function markCheckupDone(id) {
+  const checkup = findRecord("checkups", id);
+  if (!checkup) throw new Error("No encontré el control.");
+  const today = todayISO();
+  await updateRecord("checkups", id, {
+    lastDoneDate: today,
+    idealNextDate: calculateNextDate(today, checkup.frequencyMonths || 6),
+    status: "al día"
   });
-
-  if (typeof onSuccess === "function") {
-    onSuccess();
-  }
-
-  if (successToast) {
-    setToast(successToast);
-  }
+  await refreshData("Control actualizado", false);
+  toast("Control al día", "Se calculó la próxima fecha ideal.", "success");
 }
 
-async function updateEntityRecord({ collection, id, patch, successToast }) {
-  ensureWritableState();
-  ensureValidCollection(collection);
-
-  const current = findRecord(collection, id);
-  if (!current) {
-    throw new Error("No encontré el registro que intentabas actualizar.");
-  }
-
-  const nextPatch = {
-    ...patch,
-    updatedAt: nowISO()
-  };
-
-  await updateRecord(collection, id, nextPatch);
-
-  mutateData((data) => {
-    data[collection] = data[collection].map((item) =>
-      item.id === id ? { ...item, ...nextPatch } : item
-    );
-    return data;
-  });
-
-  if (successToast) {
-    setToast(successToast);
-  }
+async function toggleTreatment(id) {
+  const treatment = findRecord("treatments", id);
+  if (!treatment) throw new Error("No encontré el tratamiento.");
+  await updateRecord("treatments", id, { active: !treatment.active });
+  await refreshData("Tratamiento actualizado", false);
 }
 
-async function patchRecordStatus({ collection, id, patch, successToast }) {
-  await updateEntityRecord({
-    collection,
-    id,
-    patch,
-    successToast
-  });
+async function logDose(id) {
+  const treatment = findRecord("treatments", id);
+  if (!treatment) throw new Error("No encontré el tratamiento.");
+  const doseLog = [...(treatment.doseLog || []), new Date().toISOString()];
+  await updateRecord("treatments", id, { doseLog });
+  await refreshData("Toma registrada", false);
+  toast("Toma registrada", "Quedó anotada con la hora actual.", "success");
 }
 
-async function removeEntityRecord({ collection, id, successToast }) {
-  ensureWritableState();
-  ensureValidCollection(collection);
+// --- Backup ---
 
-  const current = findRecord(collection, id);
-  if (!current) {
-    throw new Error("No encontré el registro que intentabas eliminar.");
-  }
-
-  await deleteRecord(collection, id);
-
-  mutateData((data) => {
-    data[collection] = data[collection].filter((item) => item.id !== id);
-    return data;
-  });
-
-  if (successToast) {
-    setToast(successToast);
-  }
+function exportJson() {
+  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), app: APP_CONFIG.appName, data: state.data }, null, 2);
+  const blob = new Blob([payload], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `healthtrackerac-backup-${todayISO()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  toast("Backup exportado", "Se descargó el JSON completo.", "success");
 }
 
-function ensureWritableState() {
-  const state = getState();
-
-  if (!state.auth?.isAllowed) {
-    throw new Error("La sesión actual no tiene permisos para modificar datos.");
-  }
-
-  if (!state.app?.isDataReady) {
-    throw new Error("La información aún no está lista para edición.");
-  }
-}
-
-function findRecord(collection, id) {
-  ensureValidCollection(collection);
-
-  const state = getState();
-  const items = Array.isArray(state.data?.[collection]) ? state.data[collection] : [];
-  return items.find((item) => item.id === id) || null;
-}
-
-function ensureValidCollection(collection) {
-  if (!Object.values(COLLECTIONS).includes(collection)) {
-    throw new Error(`Colección no permitida: ${collection}`);
-  }
-}
-
-async function withActionLock(element, callback) {
-  if (!(element instanceof HTMLElement)) {
-    await runSafely(callback);
-    return;
-  }
-
-  const wasDisabled = "disabled" in element ? element.disabled : false;
-
-  if ("disabled" in element) {
-    element.disabled = true;
-  }
-
-  try {
-    await runSafely(callback);
-  } finally {
-    if ("disabled" in element) {
-      element.disabled = wasDisabled;
-    }
-  }
-}
-
-async function withFormLock(form, callback) {
-  const submitButton = form.querySelector('[type="submit"]');
-  const allFields = form.querySelectorAll("input, select, textarea, button");
-
-  allFields.forEach((field) => {
-    field.dataset.wasDisabled = String(field.disabled);
-    field.disabled = true;
-  });
-
-  try {
-    await runSafely(callback);
-  } finally {
-    allFields.forEach((field) => {
-      field.disabled = field.dataset.wasDisabled === "true";
-      delete field.dataset.wasDisabled;
-    });
-
-    if (submitButton) {
-      submitButton.disabled = false;
-    }
-  }
-}
-
-async function runSafely(callback) {
-  try {
-    await callback();
-  } catch (error) {
-    console.error("[app] Error:", error);
-
-    setToast({
-      title: "No se pudo completar la acción",
-      message:
-        error?.message ||
-        "Ocurrió un problema guardando o actualizando la información.",
-      type: "error"
-    });
-  }
-}
-
-function requireProfileId(value) {
-  const profileId = String(value || "").trim();
-  if (!profileId) {
-    throw new Error("Debes seleccionar un perfil.");
-  }
-  return profileId;
-}
-
-function requiredText(value, errorMessage) {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    throw new Error(errorMessage);
-  }
-  return normalized;
-}
-
-function optionalText(value) {
-  return String(value || "").trim();
-}
-
-function toNumber(value, min = null) {
-  const numeric = Number(value);
-
-  if (!Number.isFinite(numeric)) {
-    throw new Error("Hay un valor numérico inválido en el formulario.");
-  }
-
-  if (min !== null && numeric < min) {
-    throw new Error(`El valor debe ser mayor o igual a ${min}.`);
-  }
-
-  return numeric;
-}
-
-function nowISO() {
-  return new Date().toISOString();
-}
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+async function doImportJson() {
+  const raw = refs.importJson.value.trim();
+  if (!raw) throw new Error("Pega un JSON primero.");
+  const parsed = JSON.parse(raw);
+  await importRecords(parsed.data || parsed);
+  refs.importJson.value = "";
+  refs.importDialog.close();
+  await refreshData("Datos importados", false);
+  toast("Importación lista", "Los registros se agregaron o actualizaron.", "success");
 }

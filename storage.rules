@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function allowedEmail() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email in [
+          'alekcaballeromusic@gmail.com',
+          'catalina.medina.leal@gmail.com'
+        ];
+    }
+
+    match /{allPaths=**} {
+      // Solo los correos autorizados pueden subir/leer adjuntos.
+      allow read: if allowedEmail();
+      // Límite de 15 MB y solo imágenes o PDF.
+      allow write: if allowedEmail()
+        && request.resource.size < 15 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/pdf');
+      allow delete: if allowedEmail();
+    }
+  }
+}

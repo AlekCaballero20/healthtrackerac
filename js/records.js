@@ -1,0 +1,266 @@
+// Definición de tipos de registro, navegación y formularios "schema-driven".
+// Cada tipo describe sus campos como datos; un renderizador y un constructor
+// genéricos producen el HTML y el objeto a guardar (sirve para crear y editar).
+
+import {
+  BODY_PARTS,
+  CHECKUP_TYPES,
+  FREQUENCY_OPTIONS,
+  SPECIALTIES,
+  STATUS_OPTIONS
+} from "./config.js";
+import {
+  calculateNextDate,
+  capitalize,
+  clean,
+  esc,
+  required,
+  todayISO,
+  toNumber,
+  uid
+} from "./utils.js";
+import { state } from "./state.js";
+
+export const NAV_ITEMS = [
+  { id: "dashboard", label: "Resumen", icon: "⌂", title: "Resumen", subtitle: "Estado general, alertas y próximos pasos sin abrir ocho pestañas como si fuera declaración de renta." },
+  { id: "tracking", label: "Seguimiento", icon: "↗", title: "Seguimiento diario", subtitle: "Check-ins, tendencias y evolución cotidiana en una sola vista." },
+  { id: "symptoms", label: "Síntomas", icon: "◌", title: "Síntomas", subtitle: "Registra, observa y cierra síntomas sin volverlo una novela clínica." },
+  { id: "appointments", label: "Citas", icon: "☉", title: "Citas y controles", subtitle: "Agenda médica, controles periódicos y pendientes importantes." },
+  { id: "timeline", label: "Historial", icon: "☷", title: "Historial", subtitle: "Todo lo registrado, filtrable y buscable. Porque la memoria humana claramente no era suficiente." },
+  { id: "data", label: "Datos", icon: "⇣", title: "Datos y backup", subtitle: "Exporta, importa y revisa la estructura de información." }
+];
+
+export const RECORD_TYPES = [
+  { id: "daily", label: "Check-in", icon: "☀", hint: "Energía, sueño, agua y dolor" },
+  { id: "symptom", label: "Síntoma", icon: "◌", hint: "Molestia o evolución" },
+  { id: "body", label: "Cuerpo", icon: "◎", hint: "Parte del cuerpo específica" },
+  { id: "appointment", label: "Cita", icon: "☉", hint: "Agenda médica" },
+  { id: "checkup", label: "Control", icon: "✓", hint: "Chequeo periódico" },
+  { id: "treatment", label: "Tratamiento", icon: "✚", hint: "Medicamento o indicación" },
+  { id: "note", label: "Nota", icon: "✎", hint: "Observación libre" }
+];
+
+export const COLLECTION_BY_TYPE = {
+  daily: "dailyLogs",
+  symptom: "symptoms",
+  body: "bodyStatusEntries",
+  appointment: "appointments",
+  checkup: "checkups",
+  treatment: "treatments",
+  note: "notes"
+};
+
+const TYPE_BY_COLLECTION = Object.fromEntries(
+  Object.entries(COLLECTION_BY_TYPE).map(([type, collection]) => [collection, type])
+);
+
+export function typeForCollection(collection) {
+  return TYPE_BY_COLLECTION[collection] || "note";
+}
+
+export function typeLabel(type) {
+  return RECORD_TYPES.find((item) => item.id === type)?.label || type;
+}
+
+export function preferredTypeForView() {
+  return {
+    dashboard: "daily",
+    tracking: "daily",
+    symptoms: "symptom",
+    appointments: "appointment",
+    timeline: "note",
+    data: "note"
+  }[state.activeView] || "daily";
+}
+
+// Tipos que admiten adjuntos (exámenes, fórmulas, resultados).
+export const ATTACHABLE_TYPES = new Set(["appointment", "checkup", "treatment"]);
+
+// --- Esquemas de formulario ---
+
+const MOOD_OPTIONS = ["estable", "feliz", "sensible", "cansado", "ansioso", "irritable"];
+const TREATMENT_FREQUENCY = ["Diaria", "Cada 8 horas", "Cada 12 horas", "2 veces al día", "3 veces al día", "Semanal", "Según necesidad"];
+
+const RECORD_SCHEMAS = {
+  daily: [
+    { name: "profileId", kind: "profile" },
+    { name: "date", kind: "date", label: "Fecha", required: true, requiredMsg: "Indica la fecha.", default: todayISO },
+    { name: "energy", kind: "range", label: "Energía", min: 1, max: 10, default: 6 },
+    { name: "painLevel", kind: "range", label: "Dolor", min: 0, max: 10, default: 0 },
+    { name: "sleepHours", kind: "number", label: "Sueño (horas)", min: 0, max: 24, step: 0.5, default: 7 },
+    { name: "waterCups", kind: "number", label: "Agua (vasos)", min: 0, max: 30, step: 1, default: 5 },
+    { name: "movementMinutes", kind: "number", label: "Movimiento (min)", min: 0, step: 5, default: 0 },
+    { name: "mood", kind: "select", label: "Ánimo", options: MOOD_OPTIONS, default: "estable" },
+    { name: "note", kind: "textarea", label: "Nota", full: true, placeholder: "Gatillos, avances, comida, descanso, emociones, contexto..." }
+  ],
+  symptom: [
+    { name: "profileId", kind: "profile" },
+    { name: "name", kind: "text", label: "Síntoma", required: true, requiredMsg: "Escribe el síntoma.", placeholder: "Ej. dolor de cabeza" },
+    { name: "bodyPart", kind: "select", label: "Parte del cuerpo", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
+    { name: "intensity", kind: "range", label: "Intensidad", min: 1, max: 10, default: 4 },
+    { name: "duration", kind: "text", label: "Duración", required: true, requiredMsg: "Indica la duración.", placeholder: "Ej. 2 horas, 3 días" },
+    { name: "frequency", kind: "select", label: "Frecuencia", options: FREQUENCY_OPTIONS, default: "Ocasional" },
+    { name: "startDate", kind: "date", label: "Inicio", required: true, requiredMsg: "Indica la fecha de inicio.", default: todayISO },
+    { name: "status", kind: "select", label: "Estado", options: ["activo", "en observación", "mejorando", "resuelto"], default: "activo" },
+    { name: "trend", kind: "select", label: "Tendencia", options: ["igual", "mejorando", "empeorando", "intermitente"], default: "igual" },
+    { name: "triggers", kind: "text", label: "Posibles gatillos", full: true, placeholder: "Estrés, comida, sueño, postura, ciclo, etc." },
+    { name: "notes", kind: "textarea", label: "Notas", full: true }
+  ],
+  body: [
+    { name: "profileId", kind: "profile" },
+    { name: "bodyPart", kind: "select", label: "Parte del cuerpo", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
+    { name: "status", kind: "select", label: "Estado", options: STATUS_OPTIONS, default: "En observación" },
+    { name: "symptom", kind: "text", label: "Molestia o detalle", required: true, requiredMsg: "Describe la molestia.", full: true, placeholder: "Qué se siente o qué cambió" },
+    { name: "intensity", kind: "range", label: "Intensidad", min: 1, max: 10, default: 3 },
+    { name: "frequency", kind: "select", label: "Frecuencia", options: FREQUENCY_OPTIONS, default: "Ocasional" },
+    { name: "startDate", kind: "date", label: "Inicio", required: true, requiredMsg: "Indica la fecha de inicio.", default: todayISO },
+    { name: "observations", kind: "textarea", label: "Observaciones", full: true },
+    { name: "requiresAppointment", kind: "checkbox", label: "Requiere cita" },
+    { name: "reviewed", kind: "checkbox", label: "Revisado" }
+  ],
+  appointment: [
+    { name: "profileId", kind: "profile" },
+    { name: "specialty", kind: "select", label: "Especialidad", options: SPECIALTIES, required: true, requiredMsg: "Elige la especialidad." },
+    { name: "doctor", kind: "text", label: "Profesional", placeholder: "Opcional" },
+    { name: "date", kind: "date", label: "Fecha", required: true, requiredMsg: "Indica la fecha.", default: todayISO },
+    { name: "time", kind: "time", label: "Hora", required: true, requiredMsg: "Indica la hora.", default: "09:00" },
+    { name: "location", kind: "text", label: "Lugar", placeholder: "Sede, dirección o link" },
+    { name: "status", kind: "select", label: "Estado", options: ["agendada", "pendiente", "realizada", "cancelada"], default: "agendada" },
+    { name: "reason", kind: "text", label: "Motivo", required: true, requiredMsg: "Escribe el motivo.", full: true, placeholder: "Por qué se agenda" },
+    { name: "notes", kind: "textarea", label: "Resultado / próximos pasos", full: true }
+  ],
+  checkup: [
+    { name: "profileId", kind: "profile" },
+    { name: "name", kind: "select", label: "Control", options: CHECKUP_TYPES, required: true, requiredMsg: "Elige el control." },
+    { name: "frequencyMonths", kind: "number", label: "Frecuencia (meses)", min: 1, max: 60, step: 1, default: 6 },
+    { name: "lastDoneDate", kind: "date", label: "Última vez", required: true, requiredMsg: "Indica la última vez.", default: todayISO },
+    { name: "idealNextDate", kind: "date", label: "Próxima fecha ideal", default: (v) => v.idealNextDate || calculateNextDate(v.lastDoneDate || todayISO(), v.frequencyMonths || 6), coerce: (raw, fd) => raw || calculateNextDate(fd.lastDoneDate, fd.frequencyMonths) },
+    { name: "status", kind: "select", label: "Estado", options: ["al día", "por vencer", "atrasado"], default: "al día" },
+    { name: "priority", kind: "select", label: "Prioridad", options: ["baja", "media", "alta", "urgente"], default: "media" },
+    { name: "observations", kind: "textarea", label: "Observaciones", full: true }
+  ],
+  treatment: [
+    { name: "profileId", kind: "profile" },
+    { name: "medication", kind: "text", label: "Nombre", required: true, requiredMsg: "Escribe el tratamiento.", placeholder: "Medicamento, terapia o indicación" },
+    { name: "dose", kind: "text", label: "Dosis / indicación", placeholder: "Ej. 1 tableta" },
+    { name: "doctor", kind: "text", label: "Prescrito por", placeholder: "Opcional" },
+    { name: "frequency", kind: "select", label: "Frecuencia", options: TREATMENT_FREQUENCY, default: "Diaria" },
+    { name: "times", kind: "text", label: "Horarios", placeholder: "Ej. 8:00, 14:00, 20:00" },
+    { name: "startDate", kind: "date", label: "Inicio", required: true, requiredMsg: "Indica el inicio.", default: todayISO },
+    { name: "endDate", kind: "date", label: "Fin estimado" },
+    { name: "active", kind: "select", label: "Estado", options: ["activo", "pausado"], get: (v) => (v.active === false ? "pausado" : "activo"), coerce: (raw) => raw === "activo" },
+    { name: "notes", kind: "textarea", label: "Notas", full: true }
+  ],
+  note: [
+    { name: "profileId", kind: "profile" },
+    { name: "date", kind: "date", label: "Fecha", default: todayISO },
+    { name: "category", kind: "select", label: "Categoría", options: ["Observación", "Pregunta médica", "Patrón", "Recordatorio", "Idea", "Otro"], default: "Observación" },
+    { name: "title", kind: "text", label: "Título", required: true, requiredMsg: "Escribe un título.", full: true, placeholder: "Título corto" },
+    { name: "content", kind: "textarea", label: "Contenido", required: true, requiredMsg: "Escribe el contenido.", full: true }
+  ]
+};
+
+export function schemaFor(type) {
+  return RECORD_SCHEMAS[type] || RECORD_SCHEMAS.daily;
+}
+
+// --- Renderizado de formularios ---
+
+function fieldCurrentValue(field, values) {
+  if (typeof field.get === "function") return field.get(values || {});
+  const current = values ? values[field.name] : undefined;
+  if (current !== undefined && current !== null && current !== "") return current;
+  return typeof field.default === "function" ? field.default(values || {}) : (field.default ?? "");
+}
+
+function renderField(field, values) {
+  if (field.kind === "profile") return renderProfileField(values);
+
+  const value = fieldCurrentValue(field, values);
+  const fullClass = field.full ? "field full" : "field";
+  const req = field.required ? "required" : "";
+
+  switch (field.kind) {
+    case "checkbox":
+      return `<label class="${fullClass}"><span><input type="checkbox" name="${field.name}" ${values?.[field.name] ? "checked" : ""}> ${esc(field.label)}</span></label>`;
+    case "range":
+      return `
+        <label class="field">
+          <span>${esc(field.label)}</span>
+          <div class="range-row">
+            <input type="range" name="${field.name}" min="${field.min}" max="${field.max}" value="${esc(value)}">
+            <strong class="range-value">${esc(value)}</strong>
+          </div>
+        </label>`;
+    case "number":
+      return `<label class="${fullClass}"><span>${esc(field.label)}</span><input type="number" name="${field.name}" ${field.min !== undefined ? `min="${field.min}"` : ""} ${field.max !== undefined ? `max="${field.max}"` : ""} ${field.step !== undefined ? `step="${field.step}"` : ""} value="${esc(value)}" ${req}></label>`;
+    case "date":
+      return `<label class="${fullClass}"><span>${esc(field.label)}</span><input type="date" name="${field.name}" value="${esc(value)}" ${req}></label>`;
+    case "time":
+      return `<label class="${fullClass}"><span>${esc(field.label)}</span><input type="time" name="${field.name}" value="${esc(value)}" ${req}></label>`;
+    case "textarea":
+      return `<label class="${fullClass}"><span>${esc(field.label)}</span><textarea name="${field.name}" placeholder="${esc(field.placeholder || "")}" ${req}>${esc(value)}</textarea></label>`;
+    case "select":
+      return `<label class="${fullClass}"><span>${esc(field.label)}</span><select name="${field.name}">${field.options.map((option) => `<option value="${esc(option)}" ${String(value) === String(option) ? "selected" : ""}>${esc(capitalize(option))}</option>`).join("")}</select></label>`;
+    case "text":
+    default:
+      return `<label class="${fullClass}"><span>${esc(field.label)}</span><input type="text" name="${field.name}" value="${esc(value)}" placeholder="${esc(field.placeholder || "")}" ${req}></label>`;
+  }
+}
+
+function renderProfileField(values) {
+  const fallback = state.selectedProfileId !== "all" ? state.selectedProfileId : (state.data.profiles[0]?.id || "profile-alek");
+  const selected = values?.profileId || fallback;
+  return `
+    <label class="field">
+      <span>Perfil</span>
+      <select name="profileId" required>
+        ${state.data.profiles.map((profile) => `<option value="${esc(profile.id)}" ${selected === profile.id ? "selected" : ""}>${esc(profile.name)}</option>`).join("")}
+      </select>
+    </label>`;
+}
+
+export function renderRecordForm(type, values = null) {
+  const schema = schemaFor(type);
+  const attachmentsField = ATTACHABLE_TYPES.has(type)
+    ? `<label class="field full"><span>Adjuntar exámenes / fórmulas</span><input type="file" name="attachments" multiple accept="image/*,application/pdf"></label>`
+    : "";
+
+  return `
+    <form id="recordForm" class="form-grid" data-record-type="${type}">
+      ${schema.map((field) => renderField(field, values)).join("")}
+      ${attachmentsField}
+      <div class="field full form-actions">
+        <button type="button" class="ghost-button" data-action="close-dialog">Cancelar</button>
+        <button type="submit" class="primary-button">${values ? "Guardar cambios" : "Guardar registro"}</button>
+      </div>
+    </form>`;
+}
+
+// --- Construcción del registro a partir del formulario ---
+
+function readField(field, formData) {
+  const raw = formData[field.name];
+  if (field.kind === "checkbox") return raw !== undefined;
+  if (field.kind === "number" || field.kind === "range") {
+    return toNumber(raw, typeof field.default === "number" ? field.default : 0);
+  }
+  if (field.required) return required(raw, field.requiredMsg || `Completa: ${field.label}.`);
+  if (typeof field.coerce === "function") return field.coerce(raw, formData);
+  return clean(raw);
+}
+
+export function buildRecord(type, formData, existing = null) {
+  const schema = schemaFor(type);
+  const now = new Date().toISOString();
+  const record = existing ? { ...existing } : { id: uid(type), createdAt: now };
+  record.updatedAt = now;
+  record.profileId = required(formData.profileId, "Selecciona un perfil.");
+
+  schema.forEach((field) => {
+    if (field.kind === "profile") return;
+    record[field.name] = readField(field, formData);
+  });
+
+  return record;
+}
