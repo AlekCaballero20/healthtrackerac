@@ -513,3 +513,168 @@ input[type="range"] { padding: 0; accent-color: var(--primary); border: 0; backg
 .pill.alek { color: var(--alek); background: var(--alek-soft); }
 .pill.cata { color: var(--cata); background: var(--cata-soft); }
 .field input[type="checkbox"] { width: auto; margin-right: 8px; }
+
+/* Estilos para el chequeo rápido de cuerpo */
+.body-checklist-details {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.015);
+  padding: 14px;
+  margin-top: 10px;
+}
+.body-checklist-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 0;
+}
+.body-checklist-summary::-webkit-details-marker {
+  display: none;
+}
+.summary-status {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.summary-status.success { background: var(--success-soft); color: var(--success); }
+.summary-status.warning { background: var(--warning-soft); color: var(--warning); }
+.summary-status.danger { background: var(--danger-soft); color: var(--danger); }
+
+.body-checklist-field {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.checklist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 8px;
+}
+.checklist-actions {
+  display: flex;
+  gap: 8px;
+}
+.mini-button {
+  padding: 6px 12px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.mini-button.success:hover {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: var(--success);
+}
+.mini-button.neutral:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.body-checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px 4px;
+}
+.body-checklist-grid::-webkit-scrollbar {
+  width: 5px;
+}
+.body-checklist-grid::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+.body-check-pill {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.body-check-pill:hover {
+  border-color: var(--primary-soft);
+  transform: translateY(-1px);
+}
+.body-check-pill input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+.body-check-pill span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  pointer-events: none;
+}
+.body-check-pill .status-indicator {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 4px;
+  pointer-events: none;
+}
+.body-check-pill.checked {
+  background: var(--success-soft);
+  border-color: var(--success);
+}
+.body-check-pill.checked span {
+  color: var(--success);
+}
+.body-check-pill.checked .status-indicator {
+  color: var(--success);
+}
+
+/* Hints y aclaraciones */
+.field-hint {
+  font-size: 0.76rem !important;
+  color: var(--muted) !important;
+  font-weight: 500 !important;
+  margin-top: -2px;
+  line-height: 1.35;
+}
+.novedades-list {
+  font-weight: normal;
+  color: var(--warning);
+  font-size: 0.78rem;
+}
+.log-body-status {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 8px;
+  margin: 6px 0;
+  display: inline-block;
+}
+.log-body-status.success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.log-body-status.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
