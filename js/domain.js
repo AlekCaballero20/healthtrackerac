@@ -11,6 +11,7 @@ import {
   toneByPain
 } from "./utils.js";
 import { profileName } from "./state.js";
+import { BODY_PARTS } from "./config.js";
 
 const OPEN_SYMPTOM_STATES = ["activo", "en observación", "mejorando"];
 const OPEN_APPOINTMENT_STATES = ["agendada", "pendiente"];
@@ -121,7 +122,31 @@ export function computeAlerts(data) {
 
 export function buildTimeline(data) {
   const rows = [];
-  data.dailyLogs.forEach((item) => rows.push({ type: "daily", profileId: item.profileId, profileName: profileName(item.profileId), title: `Check-in: energía ${item.energy ?? "-"}/10`, description: item.note || `Dolor ${item.painLevel ?? 0}/10 · sueño ${item.sleepHours ?? "-"} h`, createdAt: `${item.date || todayISO()}T12:00:00`, meta: item.mood || "diario", tone: toneByPain(item.painLevel) }));
+  data.dailyLogs.forEach((item) => {
+    let bodyDesc = "";
+    if (item.bodyPartsOk) {
+      const okCount = item.bodyPartsOk.length;
+      const total = BODY_PARTS.length;
+      if (okCount === total) {
+        bodyDesc = " · Cuerpo: Todo Bien ✓";
+      } else {
+        const details = BODY_PARTS.filter((p) => !item.bodyPartsOk.includes(p)).join(", ");
+        bodyDesc = ` · Cuerpo: ${okCount}/${total} Bien (novedad en: ${details})`;
+      }
+    }
+    const description = (item.note ? `${item.note} | ` : "") + `Dolor ${item.painLevel ?? 0}/10 · Sueño ${item.sleepHours ?? "-"} h${bodyDesc}`;
+    
+    rows.push({
+      type: "daily",
+      profileId: item.profileId,
+      profileName: profileName(item.profileId),
+      title: `Check-in: energía ${item.energy ?? "-"}/10`,
+      description,
+      createdAt: `${item.date || todayISO()}T12:00:00`,
+      meta: item.mood || "diario",
+      tone: toneByPain(item.painLevel)
+    });
+  });
   data.symptoms.forEach((item) => rows.push({ type: "symptom", profileId: item.profileId, profileName: profileName(item.profileId), title: item.name, description: item.notes || item.triggers || item.bodyPart || "Síntoma registrado", createdAt: item.createdAt || item.startDate, meta: `${item.status || "activo"} · ${item.intensity ?? "-"}/10`, tone: toneByIntensity(item.intensity) }));
   data.bodyStatusEntries.forEach((item) => rows.push({ type: "body", profileId: item.profileId, profileName: profileName(item.profileId), title: `${item.bodyPart}: ${item.status}`, description: item.symptom || item.observations || "Registro corporal", createdAt: item.createdAt || item.startDate, meta: `${item.frequency || ""} · ${item.intensity ?? "-"}/10`, tone: toneByIntensity(item.intensity) }));
   data.appointments.forEach((item) => rows.push({ type: "appointment", profileId: item.profileId, profileName: profileName(item.profileId), title: `${item.specialty}: ${item.reason}`, description: item.notes || item.location || "Cita médica", createdAt: `${item.date || todayISO()}T${item.time || "09:00"}:00`, meta: item.status, tone: appointmentTone(item) }));

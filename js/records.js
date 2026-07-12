@@ -84,39 +84,40 @@ const TREATMENT_FREQUENCY = ["Diaria", "Cada 8 horas", "Cada 12 horas", "2 veces
 const RECORD_SCHEMAS = {
   daily: [
     { name: "profileId", kind: "profile" },
-    { name: "date", kind: "date", label: "Fecha", required: true, requiredMsg: "Indica la fecha.", default: todayISO },
-    { name: "energy", kind: "range", label: "Energía", min: 1, max: 10, default: 6 },
-    { name: "painLevel", kind: "range", label: "Dolor", min: 0, max: 10, default: 0 },
-    { name: "sleepHours", kind: "number", label: "Sueño (horas)", min: 0, max: 24, step: 0.5, default: 7 },
-    { name: "waterCups", kind: "number", label: "Agua (vasos)", min: 0, max: 30, step: 1, default: 5 },
-    { name: "movementMinutes", kind: "number", label: "Movimiento (min)", min: 0, step: 5, default: 0 },
-    { name: "mood", kind: "select", label: "Ánimo", options: MOOD_OPTIONS, default: "estable" },
-    { name: "note", kind: "textarea", label: "Nota", full: true, placeholder: "Gatillos, avances, comida, descanso, emociones, contexto..." }
+    { name: "date", kind: "date", label: "Fecha de registro", required: true, requiredMsg: "Indica la fecha.", default: todayISO },
+    { name: "energy", kind: "range", label: "Nivel de energía hoy (1 = Agotado, 10 = Pleno)", min: 1, max: 10, default: 6 },
+    { name: "painLevel", kind: "range", label: "Nivel de dolor físico (0 = Sin dolor, 10 = Extremo)", min: 0, max: 10, default: 0 },
+    { name: "sleepHours", kind: "number", label: "Horas de sueño (dormidas anoche)", min: 0, max: 24, step: 0.5, default: 7 },
+    { name: "waterCups", kind: "number", label: "Agua (vasos de 250ml)", min: 0, max: 30, step: 1, default: 5 },
+    { name: "movementMinutes", kind: "number", label: "Actividad física / Ejercicio (minutos)", min: 0, step: 5, default: 0 },
+    { name: "mood", kind: "select", label: "Estado de ánimo predominante", options: MOOD_OPTIONS, default: "estable" },
+    { name: "bodyPartsOk", kind: "bodyChecklist", label: "Chequeo rápido del cuerpo (Marcar si está BIEN)", full: true },
+    { name: "note", kind: "textarea", label: "Nota o comentarios del día", full: true, placeholder: "Gatillos, avances, comida, descanso, emociones, contexto..." }
   ],
   symptom: [
     { name: "profileId", kind: "profile" },
-    { name: "name", kind: "text", label: "Síntoma", required: true, requiredMsg: "Escribe el síntoma.", placeholder: "Ej. dolor de cabeza" },
-    { name: "bodyPart", kind: "select", label: "Parte del cuerpo", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
-    { name: "intensity", kind: "range", label: "Intensidad", min: 1, max: 10, default: 4 },
-    { name: "duration", kind: "text", label: "Duración", required: true, requiredMsg: "Indica la duración.", placeholder: "Ej. 2 horas, 3 días" },
+    { name: "name", kind: "text", label: "Nombre del síntoma", required: true, requiredMsg: "Escribe el síntoma.", placeholder: "Ej. Migraña, acidez, fatiga" },
+    { name: "bodyPart", kind: "select", label: "Parte del cuerpo afectada", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
+    { name: "intensity", kind: "range", label: "Intensidad del síntoma (1 al 10)", min: 1, max: 10, default: 4 },
+    { name: "duration", kind: "text", label: "Duración aproximada", required: true, requiredMsg: "Indica la duración.", placeholder: "Ej. 2 horas, todo el día" },
     { name: "frequency", kind: "select", label: "Frecuencia", options: FREQUENCY_OPTIONS, default: "Ocasional" },
     { name: "startDate", kind: "date", label: "Inicio", required: true, requiredMsg: "Indica la fecha de inicio.", default: todayISO },
-    { name: "status", kind: "select", label: "Estado", options: ["activo", "en observación", "mejorando", "resuelto"], default: "activo" },
-    { name: "trend", kind: "select", label: "Tendencia", options: ["igual", "mejorando", "empeorando", "intermitente"], default: "igual" },
-    { name: "triggers", kind: "text", label: "Posibles gatillos", full: true, placeholder: "Estrés, comida, sueño, postura, ciclo, etc." },
-    { name: "notes", kind: "textarea", label: "Notas", full: true }
+    { name: "status", kind: "select", label: "Estado actual del síntoma", options: ["activo", "en observación", "mejorando", "resuelto"], default: "activo" },
+    { name: "trend", kind: "select", label: "Evolución / Tendencia", options: ["igual", "mejorando", "empeorando", "intermitente"], default: "igual" },
+    { name: "triggers", kind: "text", label: "Desencadenantes / Gatillos", full: true, placeholder: "Ej. Falta de sueño, estrés, cafeína, posturas" },
+    { name: "notes", kind: "textarea", label: "Notas adicionales", full: true }
   ],
   body: [
     { name: "profileId", kind: "profile" },
-    { name: "bodyPart", kind: "select", label: "Parte del cuerpo", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
-    { name: "status", kind: "select", label: "Estado", options: STATUS_OPTIONS, default: "En observación" },
-    { name: "symptom", kind: "text", label: "Molestia o detalle", required: true, requiredMsg: "Describe la molestia.", full: true, placeholder: "Qué se siente o qué cambió" },
-    { name: "intensity", kind: "range", label: "Intensidad", min: 1, max: 10, default: 3 },
+    { name: "bodyPart", kind: "select", label: "Parte del cuerpo bajo seguimiento", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
+    { name: "status", kind: "select", label: "Estado de esta zona", options: STATUS_OPTIONS, default: "En observación" },
+    { name: "symptom", kind: "text", label: "Qué sientes en esta parte", required: true, requiredMsg: "Describe la molestia.", full: true, placeholder: "Qué se siente o qué cambió" },
+    { name: "intensity", kind: "range", label: "Intensidad de la molestia (1 al 10)", min: 1, max: 10, default: 3 },
     { name: "frequency", kind: "select", label: "Frecuencia", options: FREQUENCY_OPTIONS, default: "Ocasional" },
     { name: "startDate", kind: "date", label: "Inicio", required: true, requiredMsg: "Indica la fecha de inicio.", default: todayISO },
-    { name: "observations", kind: "textarea", label: "Observaciones", full: true },
-    { name: "requiresAppointment", kind: "checkbox", label: "Requiere cita" },
-    { name: "reviewed", kind: "checkbox", label: "Revisado" }
+    { name: "observations", kind: "textarea", label: "Notas adicionales u observaciones", full: true },
+    { name: "requiresAppointment", kind: "checkbox", label: "¿Necesita consulta médica?" },
+    { name: "reviewed", kind: "checkbox", label: "¿Ya fue revisado / atendido?" }
   ],
   appointment: [
     { name: "profileId", kind: "profile" },
@@ -181,6 +182,8 @@ function renderField(field, values) {
   const req = field.required ? "required" : "";
 
   switch (field.kind) {
+    case "bodyChecklist":
+      return renderBodyChecklist(values, true);
     case "checkbox":
       return `<label class="${fullClass}"><span><input type="checkbox" name="${field.name}" ${values?.[field.name] ? "checked" : ""}> ${esc(field.label)}</span></label>`;
     case "range":
@@ -206,6 +209,58 @@ function renderField(field, values) {
     default:
       return `<label class="${fullClass}"><span>${esc(field.label)}</span><input type="text" name="${field.name}" value="${esc(value)}" placeholder="${esc(field.placeholder || "")}" ${req}></label>`;
   }
+}
+
+export function renderBodyChecklist(values = null, isOpen = true) {
+  const currentOk = values?.bodyPartsOk;
+  const isNew = !values;
+  const total = BODY_PARTS.length;
+  const checkedCount = isNew ? total : (currentOk ? currentOk.length : 0);
+  
+  let summaryText = "";
+  let summaryClass = "";
+  if (checkedCount === total) {
+    summaryText = `Todos Bien (${total}/${total})`;
+    summaryClass = "success";
+  } else if (checkedCount === 0) {
+    summaryText = `Todas con novedad (0/${total})`;
+    summaryClass = "danger";
+  } else {
+    summaryText = `${checkedCount}/${total} Bien (novedad en ${total - checkedCount})`;
+    summaryClass = "warning";
+  }
+
+  const options = BODY_PARTS.map((part) => {
+    const isChecked = isNew ? true : (currentOk && currentOk.includes(part));
+    return `
+      <label class="body-check-pill ${isChecked ? "checked" : ""}">
+        <input type="checkbox" name="bodyPartsOk" value="${esc(part)}" ${isChecked ? "checked" : ""} onchange="this.parentElement.classList.toggle('checked', this.checked); this.parentElement.querySelector('.status-indicator').textContent = this.checked ? '✓ Bien' : '⚠ Novedad'; updateBodyChecklistSummary(this);">
+        <span>${esc(part)}</span>
+        <span class="status-indicator">${isChecked ? "✓ Bien" : "⚠ Novedad"}</span>
+      </label>
+    `;
+  }).join("");
+
+  return `
+    <details class="field full body-checklist-details" ${isOpen ? "open" : ""}>
+      <summary class="body-checklist-summary" onclick="setTimeout(() => updateBodyChecklistSummary(this.querySelector('input') || this.nextElementSibling?.querySelector('input')), 50)">
+        <span>🩺 Chequeo rápido de cuerpo (Marcar si está BIEN)</span>
+        <strong class="summary-status ${summaryClass}">${summaryText}</strong>
+      </summary>
+      <div class="body-checklist-field">
+        <div class="checklist-header">
+          <span class="field-hint">Desmarca las partes del cuerpo que tengan alguna novedad.</span>
+          <div class="checklist-actions">
+            <button type="button" class="mini-button success" onclick="toggleAllBodyParts(this, true)">Todo BIEN</button>
+            <button type="button" class="mini-button neutral" onclick="toggleAllBodyParts(this, false)">Ninguno</button>
+          </div>
+        </div>
+        <div class="body-checklist-grid">
+          ${options}
+        </div>
+      </div>
+    </details>
+  `;
 }
 
 function renderProfileField(values) {
@@ -241,6 +296,9 @@ export function renderRecordForm(type, values = null) {
 
 function readField(field, formData) {
   const raw = formData[field.name];
+  if (field.kind === "bodyChecklist") {
+    return Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  }
   if (field.kind === "checkbox") return raw !== undefined;
   if (field.kind === "number" || field.kind === "range") {
     return toNumber(raw, typeof field.default === "number" ? field.default : 0);

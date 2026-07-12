@@ -596,3 +596,55 @@ async function doImportJson() {
   await refreshData("Datos importados", false);
   toast("Importación lista", "Los registros se agregaron o actualizaron.", "success");
 }
+
+window.toggleAllBodyParts = function (buttonEl, state) {
+  const container = buttonEl.closest(".body-checklist-field") || buttonEl.closest(".body-checklist-details");
+  if (!container) return;
+  const checkboxes = container.querySelectorAll('input[name="bodyPartsOk"]');
+  checkboxes.forEach((cb) => {
+    cb.checked = state;
+    cb.parentElement.classList.toggle("checked", state);
+    const indicator = cb.parentElement.querySelector(".status-indicator");
+    if (indicator) {
+      indicator.textContent = state ? "✓ Bien" : "⚠ Novedad";
+    }
+  });
+
+  const checked = state ? checkboxes.length : 0;
+  const total = checkboxes.length;
+  const summaryStatus = container.querySelector(".summary-status") || container.closest(".body-checklist-details")?.querySelector(".summary-status");
+  if (summaryStatus) {
+    if (checked === total) {
+      summaryStatus.textContent = `Todos Bien (${total}/${total})`;
+      summaryStatus.className = "summary-status success";
+    } else if (checked === 0) {
+      summaryStatus.textContent = `Todas con novedad (0/${total})`;
+      summaryStatus.className = "summary-status danger";
+    } else {
+      summaryStatus.textContent = `${checked}/${total} Bien (novedad en ${total - checked})`;
+      summaryStatus.className = "summary-status warning";
+    }
+  }
+};
+
+window.updateBodyChecklistSummary = function (inputEl) {
+  if (!inputEl) return;
+  const container = inputEl.closest(".body-checklist-field") || inputEl.closest(".body-checklist-details");
+  if (!container) return;
+  const checkboxes = container.querySelectorAll('input[name="bodyPartsOk"]');
+  const checked = [...checkboxes].filter((cb) => cb.checked).length;
+  const total = checkboxes.length;
+  const summaryStatus = container.querySelector(".summary-status") || container.closest(".body-checklist-details")?.querySelector(".summary-status");
+  if (summaryStatus) {
+    if (checked === total) {
+      summaryStatus.textContent = `Todos Bien (${total}/${total})`;
+      summaryStatus.className = "summary-status success";
+    } else if (checked === 0) {
+      summaryStatus.textContent = `Todas con novedad (0/${total})`;
+      summaryStatus.className = "summary-status danger";
+    } else {
+      summaryStatus.textContent = `${checked}/${total} Bien (novedad en ${total - checked})`;
+      summaryStatus.className = "summary-status warning";
+    }
+  }
+};

@@ -1,7 +1,7 @@
 // Funciones de presentación: reciben el estado/datos y devuelven HTML.
 // No mutan estado ni hablan con Firebase (eso vive en app.js / firebase.js).
 
-import { APP_CONFIG } from "./config.js";
+import { APP_CONFIG, BODY_PARTS } from "./config.js";
 import { isDemoMode } from "./firebase.js";
 import {
   esc,
@@ -28,7 +28,7 @@ import {
   summarize,
   upcomingAppointments
 } from "./domain.js";
-import { typeLabel } from "./records.js";
+import { typeLabel, renderBodyChecklist } from "./records.js";
 
 // --- Bloques genéricos ---
 
@@ -116,18 +116,25 @@ export function renderQuickCheckin() {
       </div>
       <form id="quickCheckinForm" class="quick-grid">
         <label class="field"><span>Perfil</span><select name="profileId" required>${profileOptions}</select></label>
-        <label class="field"><span>Fecha</span><input type="date" name="date" value="${today}" required></label>
+        <label class="field"><span>Fecha de registro</span><input type="date" name="date" value="${today}" required></label>
         <label class="field">
-          <span>Energía</span>
+          <span>Energía (1-10)</span>
+          <small class="field-hint">1: Agotado, 10: Pleno</small>
           <div class="range-row"><input type="range" name="energy" min="1" max="10" value="6"><strong class="range-value">6</strong></div>
         </label>
         <label class="field">
-          <span>Dolor</span>
+          <span>Dolor físico (0-10)</span>
+          <small class="field-hint">0: Sin dolor, 10: Severo</small>
           <div class="range-row"><input type="range" name="painLevel" min="0" max="10" value="0"><strong class="range-value">0</strong></div>
         </label>
-        <label class="field"><span>Sueño</span><input type="number" name="sleepHours" min="0" max="24" step="0.5" value="7"></label>
         <label class="field">
-          <span>Ánimo</span>
+          <span>Horas de sueño</span>
+          <small class="field-hint">Dormidas anoche</small>
+          <input type="number" name="sleepHours" min="0" max="24" step="0.5" value="7">
+        </label>
+        <label class="field">
+          <span>Estado de ánimo</span>
+          <small class="field-hint">¿Cómo te sientes hoy?</small>
           <select name="mood">
             <option value="estable">Estable</option>
             <option value="feliz">Feliz</option>
@@ -137,7 +144,8 @@ export function renderQuickCheckin() {
             <option value="irritable">Irritable</option>
           </select>
         </label>
-        <label class="field full"><span>Nota corta</span><input name="note" placeholder="Algo importante del día, gatillos, avances o rarezas corporales"></label>
+        ${renderBodyChecklist(null, false)}
+        <label class="field full"><span>Nota corta del día</span><input name="note" placeholder="Algo importante del día, gatillos, avances o rarezas corporales"></label>
         <div class="field full form-actions"><button type="submit" class="primary-button">Guardar check-in</button></div>
       </form>
     </section>`;
@@ -262,6 +270,18 @@ function renderMetricChart(series, meta) {
 }
 
 function renderDailyLogCard(log) {
+  const totalParts = BODY_PARTS.length;
+  let bodySummaryHtml = "";
+  if (log.bodyPartsOk) {
+    const okCount = log.bodyPartsOk.length;
+    if (okCount === totalParts) {
+      bodySummaryHtml = `<div class="log-body-status success">Cuerpo: Todo Bien ✓</div>`;
+    } else {
+      const details = BODY_PARTS.filter((p) => !log.bodyPartsOk.includes(p)).join(", ");
+      bodySummaryHtml = `<div class="log-body-status warning">Cuerpo: ${okCount}/${totalParts} Bien <span class="novedades-list">(novedad en: ${esc(details)})</span></div>`;
+    }
+  }
+
   return `
     <article class="record-card">
       <div class="record-header">
@@ -273,6 +293,7 @@ function renderDailyLogCard(log) {
         ${miniMetric("Sueño", `${log.sleepHours ?? "-"} h`)}
         ${miniMetric("Agua", log.waterCups ?? "-")}
       </div>
+      ${bodySummaryHtml}
       <p>${esc(log.note || "Sin nota")}</p>
       <div class="card-actions">${editButton("dailyLogs", log.id)}${deleteButton("dailyLogs", log.id)}</div>
     </article>`;

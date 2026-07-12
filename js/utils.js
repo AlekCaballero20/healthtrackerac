@@ -38,7 +38,11 @@ export function capitalize(value) {
 }
 
 export function getFormData(form) {
-  return Object.fromEntries(new FormData(form).entries());
+  const data = Object.fromEntries(new FormData(form).entries());
+  if (form.querySelector('input[name="bodyPartsOk"]')) {
+    data.bodyPartsOk = [...form.querySelectorAll('input[name="bodyPartsOk"]:checked')].map((el) => el.value);
+  }
+  return data;
 }
 
 // --- Fechas ---
