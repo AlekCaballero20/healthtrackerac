@@ -222,9 +222,10 @@ export function isAllowedEmail(email) {
 export function observeSession(callback) {
   if (isDemoMode) {
     queueMicrotask(() => callback({
+      // Modo de prueba interno: la interfaz no menciona nada técnico.
       uid: "demo-user",
-      email: "demo@healthtrackerac.local",
-      displayName: "Modo demo"
+      email: "",
+      displayName: "Invitado"
     }));
     return () => {};
   }

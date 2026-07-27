@@ -21,14 +21,27 @@ import {
 } from "./utils.js";
 import { state } from "./state.js";
 
+// Vistas de la barra inferior (máximo cinco, pensadas para el pulgar).
 export const NAV_ITEMS = [
-  { id: "dashboard", label: "Resumen", icon: "⌂", title: "Resumen", subtitle: "Estado general, alertas y próximos pasos sin abrir ocho pestañas como si fuera declaración de renta." },
-  { id: "tracking", label: "Seguimiento", icon: "↗", title: "Seguimiento diario", subtitle: "Check-ins, tendencias y evolución cotidiana en una sola vista." },
-  { id: "symptoms", label: "Síntomas", icon: "◌", title: "Síntomas", subtitle: "Registra, observa y cierra síntomas sin volverlo una novela clínica." },
-  { id: "appointments", label: "Citas", icon: "☉", title: "Citas y controles", subtitle: "Agenda médica, controles periódicos y pendientes importantes." },
-  { id: "timeline", label: "Historial", icon: "☷", title: "Historial", subtitle: "Todo lo registrado, filtrable y buscable. Porque la memoria humana claramente no era suficiente." },
-  { id: "data", label: "Datos", icon: "⇣", title: "Datos y backup", subtitle: "Exporta, importa y revisa la estructura de información." }
+  { id: "dashboard", label: "Resumen", icon: "⌂", title: "Bienestar", subtitle: "Tu resumen de hoy" },
+  { id: "tracking", label: "Seguimiento", icon: "◎", title: "Seguimiento", subtitle: "Tu día a día y cómo va cambiando" },
+  { id: "appointments", label: "Citas", icon: "▤", title: "Citas", subtitle: "Consultas, controles y tratamientos" },
+  { id: "timeline", label: "Historial", icon: "▥", title: "Historial", subtitle: "Todo lo que has registrado" },
+  { id: "more", label: "Más", icon: "•••", title: "Más", subtitle: "Otras secciones de tu cuaderno" }
 ];
+
+// Vistas secundarias, accesibles desde "Más".
+export const MORE_ITEMS = [
+  { id: "symptoms", label: "Síntomas", icon: "♡", title: "Síntomas", subtitle: "Molestias registradas y su evolución" },
+  { id: "notes", label: "Notas", icon: "✎", title: "Notas", subtitle: "Observaciones y recordatorios" },
+  { id: "data", label: "Datos personales", icon: "▣", title: "Tus datos", subtitle: "Tus registros y copias de seguridad" }
+];
+
+export const ALL_VIEWS = [...NAV_ITEMS, ...MORE_ITEMS];
+
+export function viewMeta(id) {
+  return ALL_VIEWS.find((item) => item.id === id) || NAV_ITEMS[0];
+}
 
 export const RECORD_TYPES = [
   { id: "daily", label: "Check-in", icon: "☀", hint: "Energía, sueño, agua y dolor" },
@@ -69,7 +82,9 @@ export function preferredTypeForView() {
     symptoms: "symptom",
     appointments: "appointment",
     timeline: "note",
-    data: "note"
+    notes: "note",
+    data: "note",
+    more: "note"
   }[state.activeView] || "daily";
 }
 

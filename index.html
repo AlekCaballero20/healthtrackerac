@@ -2,17 +2,17 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
-      content="Health Tracker AC, seguimiento privado de salud, síntomas, citas, controles y tratamientos para Alek y Cata."
+      content="Health Tracker AC, tu cuaderno personal de bienestar: síntomas, citas, controles y tratamientos."
     />
-    <meta name="theme-color" content="#f7f5ff" />
-    <title>Health Tracker AC · Glow Up</title>
+    <meta name="theme-color" content="#F6F2E9" />
+    <title>Health Tracker AC</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./css/styles.css" />
@@ -20,78 +20,110 @@
 
   <body>
     <noscript>
-      <div class="noscript">
-        Esta app necesita JavaScript activado. Sí, el futuro exige permisos hasta para respirar organizado.
-      </div>
+      <div class="noscript">Necesitas activar JavaScript para usar esta aplicación.</div>
     </noscript>
 
     <div class="app-shell" id="appShell">
-      <aside class="sidebar" aria-label="Navegación principal">
-        <div class="brand-card">
-          <div class="brand-icon">♡</div>
-          <div>
-            <p class="eyebrow">Health Tracker AC</p>
-            <h1>Bienestar</h1>
+      <header class="topbar">
+        <div class="topbar-row">
+          <button type="button" class="icon-button" data-action="open-menu" aria-label="Abrir menú">
+            <span class="ico-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+          </button>
+
+          <div class="topbar-right">
+            <button type="button" class="icon-button" data-action="open-alerts" aria-label="Ver avisos">
+              <span class="ico-bell" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 8a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6" />
+                  <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+                </svg>
+              </span>
+              <span class="dot-badge" id="alertDot" hidden></span>
+            </button>
+            <button type="button" class="avatar-button" data-action="open-account" aria-label="Tu cuenta">
+              <span id="avatarInitials">··</span>
+            </button>
           </div>
         </div>
 
-        <nav class="nav-list" id="mainNav"></nav>
-
-        <section class="sidebar-card session-card" id="sessionCard">
-          <p class="eyebrow">Sesión</p>
-          <strong id="sessionLabel">Verificando acceso...</strong>
-          <small id="sessionHint">Cargando Firebase</small>
-          <div class="session-actions">
-            <button type="button" class="primary-button full" data-auth="login">Ingresar</button>
-            <button type="button" class="ghost-button full" data-auth="logout" hidden>Cerrar sesión</button>
-          </div>
-        </section>
-
-        <section class="sidebar-card tiny-help">
-          <p class="eyebrow">Modo rápido</p>
-          <p>
-            Usa <strong>?demo=1</strong> al final de la URL para probar sin Firebase.
-          </p>
-        </section>
-      </aside>
+        <div class="topbar-title">
+          <h1 class="display-title" id="viewTitle">Bienestar</h1>
+          <p class="display-subtitle" id="viewSubtitle">Tu resumen de hoy</p>
+          <svg class="leaf-mark" viewBox="0 0 140 70" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <path d="M8 62C34 58 62 44 84 22" />
+              <path d="M84 22c-2 10 2 17 10 19 6-6 5-16-10-19Z" />
+              <path d="M70 34c-3 9 0 16 8 18 6-6 5-15-8-18Z" />
+              <path d="M54 45c-4 8-1 15 6 17 6-5 6-14-6-17Z" />
+              <path d="M92 18c9-4 17-2 20 5-6 6-15 5-20-5Z" />
+              <path d="M78 30c9-4 17-2 20 5-7 6-15 4-20-5Z" />
+            </g>
+          </svg>
+        </div>
+      </header>
 
       <main class="workspace">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow" id="viewEyebrow">Seguimiento cotidiano</p>
-            <h2 id="viewTitle">Resumen</h2>
-            <p id="viewSubtitle">
-              Registros rápidos, alertas claras y menos pantallas para hacer una sola cosa. Qué concepto tan raro: facilidad.
-            </p>
-          </div>
-
-          <div class="topbar-actions">
-            <label class="profile-switcher">
-              <span>Perfil</span>
-              <select id="profileSelector" aria-label="Filtrar por perfil">
-                <option value="all">Vista compartida</option>
-              </select>
-            </label>
-            <button type="button" class="ghost-button" data-action="export-json">Exportar</button>
-            <button type="button" class="primary-button" data-action="open-create">+ Registrar</button>
-          </div>
-        </header>
-
         <section class="status-banner" id="statusBanner" aria-live="polite"></section>
-
         <section class="quick-checkin" id="quickCheckin"></section>
-
         <section id="app" tabindex="-1"></section>
       </main>
+
+      <nav class="bottom-nav" id="mainNav" aria-label="Navegación principal"></nav>
     </div>
+
+    <dialog class="sheet" id="menuSheet">
+      <div class="sheet-shell">
+        <div class="sheet-header">
+          <h3>Opciones</h3>
+          <button type="button" class="icon-button" data-action="close-sheet" aria-label="Cerrar">×</button>
+        </div>
+        <label class="field">
+          <span>Ver información de</span>
+          <select id="profileSelector" aria-label="Filtrar por persona">
+            <option value="all">Todos</option>
+          </select>
+        </label>
+        <div class="sheet-actions">
+          <button type="button" class="soft-button full" data-action="export-json">Guardar una copia</button>
+          <button type="button" class="soft-button full" data-action="open-import">Restaurar una copia</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="sheet" id="alertsSheet">
+      <div class="sheet-shell">
+        <div class="sheet-header">
+          <h3>Avisos</h3>
+          <button type="button" class="icon-button" data-action="close-sheet" aria-label="Cerrar">×</button>
+        </div>
+        <div id="alertsMount"></div>
+      </div>
+    </dialog>
+
+    <dialog class="sheet" id="accountSheet">
+      <div class="sheet-shell">
+        <div class="sheet-header">
+          <h3>Tu cuenta</h3>
+          <button type="button" class="icon-button" data-action="close-sheet" aria-label="Cerrar">×</button>
+        </div>
+        <div class="account-block">
+          <div class="avatar-lg" id="accountInitials">··</div>
+          <div>
+            <strong id="sessionLabel">Sin sesión</strong>
+            <small id="sessionHint">Ingresa para ver tu información</small>
+          </div>
+        </div>
+        <div class="sheet-actions">
+          <button type="button" class="primary-button full" data-auth="login">Ingresar</button>
+          <button type="button" class="ghost-button full" data-auth="logout" hidden>Cerrar sesión</button>
+        </div>
+      </div>
+    </dialog>
 
     <dialog class="record-dialog" id="recordDialog">
       <div class="dialog-shell">
         <div class="dialog-header">
-          <div>
-            <p class="eyebrow">Nuevo registro</p>
-            <h3 id="dialogTitle">Registrar algo</h3>
-          </div>
+          <h3 id="dialogTitle">Nuevo registro</h3>
           <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
         </div>
         <div class="type-grid" id="recordTypeGrid"></div>
@@ -100,21 +132,18 @@
     </dialog>
 
     <dialog class="record-dialog" id="importDialog">
-      <div class="dialog-shell import-shell">
+      <div class="dialog-shell">
         <div class="dialog-header">
-          <div>
-            <p class="eyebrow">Importar backup</p>
-            <h3>Cargar JSON exportado</h3>
-          </div>
+          <h3>Restaurar una copia</h3>
           <button type="button" class="icon-button" data-action="close-import" aria-label="Cerrar">×</button>
         </div>
         <p class="muted-copy">
-          Esto agrega o actualiza registros por ID. No borra datos existentes, porque borrar cosas sin avisar es deporte extremo.
+          Pega aquí el contenido de una copia guardada. Se agregan o actualizan registros; nada se borra.
         </p>
-        <textarea id="importJson" rows="10" placeholder='Pega aquí el JSON exportado'></textarea>
+        <textarea id="importJson" rows="8" placeholder="Pega aquí el contenido de tu copia"></textarea>
         <div class="form-actions">
           <button type="button" class="ghost-button" data-action="close-import">Cancelar</button>
-          <button type="button" class="primary-button" data-action="import-json">Importar datos</button>
+          <button type="button" class="primary-button" data-action="import-json">Restaurar</button>
         </div>
       </div>
     </dialog>

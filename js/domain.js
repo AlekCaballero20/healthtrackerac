@@ -5,6 +5,7 @@ import {
   daysBetween,
   daysSince,
   formatDate,
+  sortAsc,
   sortDesc,
   todayISO,
   toneByIntensity,
@@ -154,6 +155,45 @@ export function buildTimeline(data) {
   data.treatments.forEach((item) => rows.push({ type: "treatment", profileId: item.profileId, profileName: profileName(item.profileId), title: item.medication, description: item.notes || item.dose || "Tratamiento", createdAt: item.createdAt || item.startDate, meta: item.active ? "activo" : "pausado", tone: item.active ? "success" : "neutral" }));
   data.notes.forEach((item) => rows.push({ type: "note", profileId: item.profileId, profileName: profileName(item.profileId), title: item.title, description: item.content, createdAt: item.createdAt || item.date, meta: item.category, tone: "neutral" }));
   return sortDesc(rows, "createdAt");
+}
+
+// --- Derivados para el resumen del día ---
+
+// Controles vencidos o que vencen dentro del próximo mes.
+export function pendingCheckups(data) {
+  return data.checkups.filter((item) => {
+    const diff = daysBetween(item.idealNextDate);
+    return item.status === "atrasado" || diff <= 30;
+  });
+}
+
+export function nextAppointment(data) {
+  return sortAsc(upcomingAppointments(data), "date")[0] || null;
+}
+
+// Fecha del síntoma o registro corporal más reciente (ISO o null).
+export function lastSymptomDate(data) {
+  const dates = [
+    ...data.symptoms.map((item) => item.startDate || item.createdAt),
+    ...data.bodyStatusEntries.map((item) => item.startDate || item.createdAt)
+  ].filter(Boolean);
+  if (!dates.length) return null;
+  return dates.sort().at(-1);
+}
+
+// Últimos 7 días con registro, en orden cronológico.
+export function weekSeries(logs, field) {
+  return metricSeries(logs, field, 7);
+}
+
+// Compara la primera mitad con la segunda para describir la tendencia.
+export function trendLabel(series) {
+  if (series.length < 3) return null;
+  const half = Math.floor(series.length / 2);
+  const avg = (list) => list.reduce((sum, item) => sum + item.value, 0) / (list.length || 1);
+  const diff = avg(series.slice(half)) - avg(series.slice(0, half));
+  if (Math.abs(diff) < 0.8) return { text: "Estable", tone: "success" };
+  return diff > 0 ? { text: "En aumento", tone: "warning" } : { text: "A la baja", tone: "warning" };
 }
 
 export function appointmentTone(item) {

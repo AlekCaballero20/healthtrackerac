@@ -4,6 +4,8 @@
 import { APP_CONFIG, BODY_PARTS } from "./config.js";
 import { isDemoMode } from "./firebase.js";
 import {
+  daysBetween,
+  daysSince,
   esc,
   formatDate,
   formatDateShort,
@@ -24,11 +26,15 @@ import {
   dosesToday,
   dueCheckups,
   lastDose,
+  lastSymptomDate,
   metricSeries,
-  summarize,
-  upcomingAppointments
+  nextAppointment,
+  pendingCheckups,
+  trendLabel,
+  upcomingAppointments,
+  weekSeries
 } from "./domain.js";
-import { typeLabel, renderBodyChecklist } from "./records.js";
+import { MORE_ITEMS, typeLabel, renderBodyChecklist } from "./records.js";
 
 // --- Bloques genéricos ---
 
@@ -69,33 +75,33 @@ function renderAttachments(collection, item) {
 // --- Estados de carga / sesión ---
 
 export function renderLoading() {
-  return `<section class="empty-state"><h3>Cargando</h3><p>Estamos preparando sesión y datos. Hasta las apps tienen que respirar antes de funcionar.</p></section>`;
+  return `<section class="empty-state"><h3>Un momento</h3><p>Estamos abriendo tu información.</p></section>`;
 }
 
 export function renderAuthState() {
   return `
     <section class="empty-state">
-      <h3>Acceso privado</h3>
-      <p>Ingresa con una cuenta autorizada para cargar los datos de Alek y Cata.</p>
-      <div class="form-actions"><button type="button" class="primary-button" data-auth="login">Ingresar con Google</button></div>
+      <h3>Este es tu espacio privado</h3>
+      <p>Ingresa con tu cuenta para ver tu seguimiento de bienestar.</p>
+      <div class="form-actions"><button type="button" class="primary-button" data-auth="login">Ingresar</button></div>
     </section>`;
 }
 
 export function renderBlockedState() {
   return `
     <section class="empty-state">
-      <h3>Cuenta no autorizada</h3>
-      <p>Cierra sesión e ingresa con un correo permitido.</p>
+      <h3>Esta cuenta no tiene acceso</h3>
+      <p>Cierra sesión e ingresa con una cuenta autorizada.</p>
       <div class="form-actions"><button type="button" class="ghost-button" data-auth="logout">Cerrar sesión</button></div>
     </section>`;
 }
 
-export function renderErrorState(message) {
+export function renderErrorState() {
   return `
     <section class="empty-state">
-      <h3>No se pudo cargar la información</h3>
-      <p>${esc(message)}</p>
-      <div class="form-actions"><button type="button" class="primary-button" data-action="reload">Recargar</button></div>
+      <h3>No pudimos cargar tu información</h3>
+      <p>Revisa tu conexión e inténtalo de nuevo.</p>
+      <div class="form-actions"><button type="button" class="primary-button" data-action="reload">Reintentar</button></div>
     </section>`;
 }
 
@@ -108,11 +114,10 @@ export function renderQuickCheckin() {
     <section class="quick-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">Registro rápido</p>
-          <h3>¿Cómo va el día?</h3>
-          <p class="section-subtitle">Un check-in de 30 segundos para que el seguimiento no dependa de “creo que me sentía raro hace como tres martes”.</p>
+          <h3>¿Cómo va tu día?</h3>
+          <p class="section-subtitle">Un registro corto para no perder el hilo de cómo te sientes.</p>
         </div>
-        <button type="button" class="soft-button" data-action="open-create" data-type="daily">Abrir completo</button>
+        <button type="button" class="soft-button" data-action="open-create" data-type="daily">Registro completo</button>
       </div>
       <form id="quickCheckinForm" class="quick-grid">
         <label class="field"><span>Perfil</span><select name="profileId" required>${profileOptions}</select></label>
@@ -145,45 +150,278 @@ export function renderQuickCheckin() {
           </select>
         </label>
         ${renderBodyChecklist(null, false)}
-        <label class="field full"><span>Nota corta del día</span><input name="note" placeholder="Algo importante del día, gatillos, avances o rarezas corporales"></label>
-        <div class="field full form-actions"><button type="submit" class="primary-button">Guardar check-in</button></div>
+        <label class="field full"><span>Nota corta del día</span><input name="note" placeholder="Algo importante del día: cómo dormiste, cómo te sentiste..."></label>
+        <div class="field full form-actions"><button type="submit" class="primary-button full">Guardar registro</button></div>
       </form>
     </section>`;
 }
 
-// --- Dashboard ---
+// --- Íconos (trazos finos, coherentes con el resto) ---
+
+const svg = (paths) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+
+const ICONS = {
+  smile: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01"/><path d="M15 9.5h.01"/>'),
+  alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/>'),
+  clipboard: svg('<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4h6v3H9z"/><path d="M9 12l2 2 3.5-3.5"/>'),
+  calendar: svg('<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4M16 3v4M4 10h16"/><path d="M9.5 15l1.5 1.5 3-3"/>'),
+  heart: svg('<path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.6-7 9-7 9Z"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  heartPlus: svg('<path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.6-7 9-7 9Z"/><path d="M12 11h.01"/>'),
+  note: svg('<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H16l3 3v13.5A2.5 2.5 0 0 1 16.5 22h-9A2.5 2.5 0 0 1 5 19.5Z"/><path d="M9 12h6M9 16h4"/>'),
+  pill: svg('<rect x="5" y="3" width="14" height="18" rx="4"/><path d="M5 10h14"/>'),
+  head: svg('<path d="M15 21v-2.5c0-1 .5-1.6 1.3-2.2A6.5 6.5 0 1 0 6 10.6"/><path d="M6 11H4.5L6 14H5v3h4v4"/>'),
+  chart: svg('<path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/>')
+};
+
+// --- Resumen (pantalla principal) ---
 
 export function renderDashboard() {
   const data = scopedData();
   const alerts = computeAlerts(data);
-  const summary = summarize(data);
-  const timeline = buildTimeline(data).slice(0, 6);
 
   return `
     <section class="stack">
-      <div class="dashboard-grid">
-        ${metric("Síntomas activos", summary.activeSymptoms, "Pendientes de revisar")}
-        ${metric("Citas próximas", summary.upcomingAppointments, "Agenda abierta")}
-        ${metric("Controles vencidos", summary.dueCheckups, "Chequeos para programar")}
-        ${metric("Tratamientos activos", summary.activeTreatments, "Medicamentos en curso")}
-      </div>
+      ${renderDayStatus(data, alerts)}
 
-      <section class="panel">
-        <div class="section-header">
-          <div><p class="eyebrow">Prioridades</p><h3>Lo que conviene mirar primero</h3></div>
-          <span class="badge ${alerts.some((a) => a.level === "danger") ? "danger" : alerts.length ? "warning" : "success"}">${alerts.length ? `${alerts.length} alerta${alerts.length > 1 ? "s" : ""}` : "estable"}</span>
-        </div>
-        ${alerts.length ? `<div class="cards-grid">${alerts.slice(0, 6).map(renderAlert).join("")}</div>` : emptyState("Sin alertas críticas", "No hay síntomas altos, citas vencidas ni controles urgentes en esta vista.")}
+      <section>
+        <h2 class="section-title" style="margin-bottom:10px">Acciones rápidas</h2>
+        ${renderQuickActions()}
       </section>
 
-      <section class="panel">
-        <div class="section-header">
-          <div><p class="eyebrow">Últimos movimientos</p><h3>Historial reciente</h3></div>
-          <button type="button" class="ghost-button" data-view="timeline">Ver historial</button>
-        </div>
-        ${timeline.length ? `<div class="timeline-grid">${timeline.map(renderTimelineItem).join("")}</div>` : emptyState("Todavía no hay historial", "Empieza con un check-in o registra un síntoma para que esto deje de parecer apartamento recién entregado.")}
-      </section>
+      ${renderTodaySummary(data)}
+      ${renderWeekTrend(data)}
     </section>`;
+}
+
+function renderDayStatus(data, alerts) {
+  const worst = alerts.some((item) => item.level === "danger")
+    ? "alert"
+    : alerts.length ? "attention" : "ok";
+
+  const title = { ok: "Todo va bien", attention: "Hay algo por revisar", alert: "Necesita tu atención" }[worst];
+  const copy = alerts.length
+    ? `${alerts.length} aviso${alerts.length > 1 ? "s" : ""} para mirar hoy`
+    : "No tienes avisos importantes";
+
+  const pending = pendingCheckups(data).length;
+  const next = nextAppointment(data);
+  const lastSymptom = lastSymptomDate(data);
+  const days = lastSymptom === null ? null : daysSince(lastSymptom);
+
+  return `
+    <section class="hero-card ${worst === "ok" ? "" : worst}">
+      <div class="hero-top">
+        <div class="hero-face">${worst === "ok" ? ICONS.smile : ICONS.alert}</div>
+        <div>
+          <p class="hero-title">${esc(title)}</p>
+          <p class="hero-copy">${esc(copy)}</p>
+        </div>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="hero-stat-icon">${ICONS.clipboard}</div>
+          <strong>${pending ? pending : "—"}</strong>
+          <small>${pending ? `seguimiento${pending > 1 ? "s" : ""} pendiente${pending > 1 ? "s" : ""}` : "No tienes seguimientos pendientes"}</small>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-icon">${ICONS.calendar}</div>
+          <strong>${next ? esc(formatDateShort(next.date)) : "—"}</strong>
+          <small>${next ? "Próxima cita" : "No tienes citas próximas"}</small>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-icon">${ICONS.heart}</div>
+          <strong>${days === null ? "—" : (days === 0 ? "Hoy" : `Hace ${days} día${days > 1 ? "s" : ""}`)}</strong>
+          <small>${days === null ? "Aún no has registrado síntomas" : "Último síntoma"}</small>
+        </div>
+      </div>
+    </section>`;
+}
+
+const QUICK_ACTIONS = [
+  { type: "symptom", label: "Registrar<br>síntoma", icon: ICONS.plus, tone: "" },
+  { type: "daily", label: "Agregar<br>medición", icon: ICONS.heartPlus, tone: "green" },
+  { type: "appointment", label: "Agendar<br>cita", icon: ICONS.calendar, tone: "amber" },
+  { type: "note", label: "Nueva<br>nota", icon: ICONS.note, tone: "" }
+];
+
+function renderQuickActions() {
+  return `
+    <div class="quick-actions">
+      ${QUICK_ACTIONS.map((action) => `
+        <button type="button" class="qa-button" data-action="open-create" data-type="${action.type}">
+          <span class="qa-icon ${action.tone}">${action.icon}</span>
+          <span class="qa-label">${action.label}</span>
+        </button>
+      `).join("")}
+    </div>`;
+}
+
+function summaryRow({ view, tone = "", icon, title, detail, when }) {
+  return `
+    <button type="button" class="summary-row ${tone ? `tone-${tone}` : ""}" data-view="${view}">
+      <span class="summary-icon ${tone ? `tone-${tone}` : ""}">${icon}</span>
+      <span class="summary-text"><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>
+      <span class="summary-when">${esc(when || "")}</span>
+      <span class="summary-chevron" aria-hidden="true">›</span>
+    </button>`;
+}
+
+function renderTodaySummary(data) {
+  const rows = [];
+
+  const treatments = data.treatments.filter((item) => item.active);
+  if (treatments.length) {
+    const first = treatments[0];
+    rows.push(summaryRow({
+      view: "appointments",
+      icon: ICONS.pill,
+      title: "Medicamentos",
+      detail: treatments.length === 1 ? `${first.medication}${first.dose ? ` · ${first.dose}` : ""}` : `${treatments.length} en curso`,
+      when: first.times ? String(first.times).split(",")[0].trim() : ""
+    }));
+  }
+
+  const symptom = sortDesc(data.symptoms, "startDate")[0];
+  if (symptom) {
+    rows.push(summaryRow({
+      view: "symptoms",
+      tone: toneByIntensity(symptom.intensity),
+      icon: ICONS.head,
+      title: "Síntomas recientes",
+      detail: `${symptom.name}${symptom.bodyPart ? ` · ${symptom.bodyPart}` : ""}`,
+      when: relativeDay(symptom.startDate)
+    }));
+  }
+
+  const checkups = pendingCheckups(data);
+  if (checkups.length) {
+    const first = sortAsc(checkups, "idealNextDate")[0];
+    rows.push(summaryRow({
+      view: "appointments",
+      tone: daysBetween(first.idealNextDate) < 0 ? "warning" : "",
+      icon: ICONS.clipboard,
+      title: "Seguimientos activos",
+      detail: checkups.length === 1 ? first.name : `${checkups.length} controles por hacer`,
+      when: first.frequencyMonths ? `Cada ${first.frequencyMonths} meses` : ""
+    }));
+  }
+
+  const next = nextAppointment(data);
+  if (next) {
+    rows.push(summaryRow({
+      view: "appointments",
+      icon: ICONS.calendar,
+      title: "Próximas citas",
+      detail: `${next.specialty}${next.reason ? ` · ${next.reason}` : ""}`,
+      when: `${formatDateShort(next.date)}${next.time ? ` · ${next.time}` : ""}`
+    }));
+  }
+
+  const note = sortDesc(data.notes, "createdAt")[0];
+  if (note) {
+    rows.push(summaryRow({
+      view: "notes",
+      icon: ICONS.note,
+      title: "Notas recientes",
+      detail: note.title || note.content || "Nota",
+      when: relativeDay(note.date || note.createdAt)
+    }));
+  }
+
+  if (!rows.length) {
+    return `
+      <section>
+        <h2 class="section-title" style="margin-bottom:10px">Resumen de hoy</h2>
+        ${emptyState("Todavía no hay nada que mostrar", "Usa las acciones rápidas para hacer tu primer registro.")}
+      </section>`;
+  }
+
+  return `
+    <section>
+      <div class="section-header" style="margin-bottom:10px">
+        <h2 class="section-title">Resumen de hoy</h2>
+        <button type="button" class="link-button" data-view="timeline">Ver todo ›</button>
+      </div>
+      <div class="summary-list">${rows.join("")}</div>
+    </section>`;
+}
+
+function relativeDay(dateString) {
+  if (!dateString) return "";
+  const diff = daysBetween(String(dateString).slice(0, 10));
+  if (diff === 0) return "Hoy";
+  if (diff === -1) return "Ayer";
+  if (diff === 1) return "Mañana";
+  return formatDateShort(String(dateString).slice(0, 10));
+}
+
+// Gráfica de línea sencilla, dibujada con SVG (sin librerías externas).
+function renderWeekTrend(data) {
+  const meta = CHART_METRICS.find((item) => item.id === state.trackingMetric) || CHART_METRICS[0];
+  const series = weekSeries(data.dailyLogs, meta.id);
+  const trend = trendLabel(series);
+
+  const body = series.length < 2
+    ? emptyState("Aún no hay suficientes datos", "Registra más datos para ver tu tendencia semanal.")
+    : `<div class="trend-scroll">${lineChart(series, meta)}</div>`;
+
+  return `
+    <section class="panel trend-card">
+      <div class="section-header">
+        <h2 class="section-title">Tendencia de esta semana</h2>
+        ${trend ? `<span class="trend-tag ${trend.tone === "success" ? "" : "warning"}">${esc(trend.text)}</span>` : ""}
+      </div>
+      <div class="chart-tabs">
+        ${CHART_METRICS.map((item) => `<button type="button" class="chip ${item.id === meta.id ? "active" : ""}" data-action="set-chart-metric" data-metric="${item.id}">${esc(item.label)}</button>`).join("")}
+      </div>
+      ${body}
+    </section>`;
+}
+
+function lineChart(series, meta) {
+  const width = 320;
+  const height = 150;
+  const padLeft = 26;
+  const padRight = 10;
+  const padTop = 12;
+  const padBottom = 24;
+  const max = Math.max(meta.max, ...series.map((point) => point.value));
+  const min = 0;
+  const stepX = (width - padLeft - padRight) / Math.max(1, series.length - 1);
+  const toY = (value) => padTop + (1 - (value - min) / (max - min || 1)) * (height - padTop - padBottom);
+
+  const points = series.map((point, index) => ({
+    x: padLeft + index * stepX,
+    y: toY(point.value),
+    label: formatDateShort(point.date),
+    last: index === series.length - 1
+  }));
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(min + ratio * (max - min)));
+
+  return `
+    <svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img"
+         aria-label="Evolución de ${esc(meta.label)} en los últimos días">
+      ${ticks.map((tick) => `
+        <line class="grid-line" x1="${padLeft}" x2="${width - padRight}" y1="${toY(tick).toFixed(1)}" y2="${toY(tick).toFixed(1)}"/>
+        <text class="axis-text" x="0" y="${(toY(tick) + 3).toFixed(1)}">${tick}</text>
+      `).join("")}
+      <polyline class="series-line" points="${points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}"/>
+      ${points.map((point) => `<circle class="series-dot" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3"/>`).join("")}
+      ${points.map((point) => `<text class="axis-text ${point.last ? "today" : ""}" x="${point.x.toFixed(1)}" y="${height - 6}" text-anchor="middle">${esc(point.last ? "Hoy" : point.label)}</text>`).join("")}
+    </svg>`;
+}
+
+// --- Avisos (hoja del icono de campana) ---
+
+export function renderAlertsList() {
+  const alerts = computeAlerts(scopedData());
+  if (!alerts.length) {
+    return emptyState("Todo va bien", "No tienes avisos importantes por ahora.");
+  }
+  return `<div class="cards-grid">${alerts.map(renderAlert).join("")}</div>`;
 }
 
 function renderAlert(alert) {
@@ -220,13 +458,13 @@ export function renderTracking() {
     <section class="stack">
       <section class="panel chart-card">
         <div class="section-header">
-          <div><p class="eyebrow">Tendencias</p><h3>Evolución de los check-ins</h3></div>
+          <h2 class="section-title">Cómo has estado</h2>
           <button type="button" class="primary-button" data-action="open-create" data-type="daily">Nuevo check-in</button>
         </div>
         <div class="chart-tabs">
           ${CHART_METRICS.map((m) => `<button type="button" class="chip ${m.id === activeMetric.id ? "active" : ""}" data-action="set-chart-metric" data-metric="${m.id}">${esc(m.label)}</button>`).join("")}
         </div>
-        ${series.length ? renderMetricChart(series, activeMetric) : emptyState("Sin check-ins", "Guarda algunos registros diarios y aquí aparecerá la evolución.")}
+        ${series.length ? renderMetricChart(series, activeMetric) : emptyState("Aún no hay registros", "Guarda algunos registros diarios y aquí verás tu evolución.")}
       </section>
 
       <section class="cards-grid">
@@ -249,8 +487,8 @@ export function renderTracking() {
       </section>
 
       <section class="panel">
-        <div class="section-header"><div><p class="eyebrow">Registros</p><h3>Check-ins recientes</h3></div></div>
-        ${logs.length ? `<div class="timeline-grid">${logs.slice(0, 12).map(renderDailyLogCard).join("")}</div>` : emptyState("Nada registrado", "El botón de arriba está ahí, heroico y subutilizado.")}
+        <div class="section-header"><h2 class="section-title">Registros recientes</h2></div>
+        ${logs.length ? `<div class="timeline-grid">${logs.slice(0, 12).map(renderDailyLogCard).join("")}</div>` : emptyState("Nada registrado todavía", "Usa el botón de arriba para guardar tu primer registro del día.")}
       </section>
     </section>`;
 }
@@ -310,18 +548,18 @@ export function renderSymptoms() {
     <section class="stack">
       <section class="panel">
         <div class="section-header">
-          <div><p class="eyebrow">Síntomas</p><h3>Molestias y evolución</h3></div>
+          <h2 class="section-title">Molestias y evolución</h2>
           <div class="card-actions">
             <button type="button" class="ghost-button" data-action="open-create" data-type="body">Registrar cuerpo</button>
             <button type="button" class="primary-button" data-action="open-create" data-type="symptom">Nuevo síntoma</button>
           </div>
         </div>
-        ${symptoms.length ? `<div class="cards-grid">${symptoms.map(renderSymptomCard).join("")}</div>` : emptyState("Sin síntomas registrados", "Idealmente porque están bien, no porque nadie quiso llenar el formulario. Igual aquí queda listo.")}
+        ${symptoms.length ? `<div class="cards-grid">${symptoms.map(renderSymptomCard).join("")}</div>` : emptyState("Aún no has registrado síntomas", "Cuando algo te moleste, regístralo aquí para seguir su evolución.")}
       </section>
 
       <section class="panel">
-        <div class="section-header"><div><p class="eyebrow">Mapa corporal</p><h3>Partes del cuerpo registradas</h3></div></div>
-        ${body.length ? `<div class="cards-grid">${body.map(renderBodyCard).join("")}</div>` : emptyState("Sin registros corporales", "Puedes registrar una parte del cuerpo específica cuando algo necesite seguimiento fino.")}
+        <div class="section-header"><h2 class="section-title">Partes del cuerpo en seguimiento</h2></div>
+        ${body.length ? `<div class="cards-grid">${body.map(renderBodyCard).join("")}</div>` : emptyState("Sin registros del cuerpo", "Puedes seguir una zona concreta cuando necesite atención especial.")}
       </section>
     </section>`;
 }
@@ -373,26 +611,26 @@ export function renderAppointments() {
     <section class="stack">
       <section class="panel">
         <div class="section-header">
-          <div><p class="eyebrow">Agenda</p><h3>Citas médicas</h3></div>
+          <h2 class="section-title">Citas médicas</h2>
           <button type="button" class="primary-button" data-action="open-create" data-type="appointment">Nueva cita</button>
         </div>
-        ${appointments.length ? `<div class="cards-grid">${appointments.map(renderAppointmentCard).join("")}</div>` : emptyState("Sin citas", "Cuando haya una cita, ponla aquí y deja de confiar en chats perdidos de WhatsApp.")}
+        ${appointments.length ? `<div class="cards-grid">${appointments.map(renderAppointmentCard).join("")}</div>` : emptyState("No tienes citas próximas", "Agenda aquí tus consultas para tenerlas siempre a la mano.")}
       </section>
 
       <section class="panel">
         <div class="section-header">
-          <div><p class="eyebrow">Controles</p><h3>Chequeos periódicos</h3></div>
+          <h2 class="section-title">Controles periódicos</h2>
           <button type="button" class="ghost-button" data-action="open-create" data-type="checkup">Nuevo control</button>
         </div>
-        ${checkups.length ? `<div class="cards-grid">${checkups.map(renderCheckupCard).join("")}</div>` : emptyState("Sin controles", "Agrega odontología, exámenes, visión o cualquier chequeo recurrente.")}
+        ${checkups.length ? `<div class="cards-grid">${checkups.map(renderCheckupCard).join("")}</div>` : emptyState("No tienes seguimientos pendientes", "Agrega odontología, exámenes, visión o cualquier control que se repita.")}
       </section>
 
       <section class="panel">
         <div class="section-header">
-          <div><p class="eyebrow">Tratamientos</p><h3>Medicamentos e indicaciones</h3></div>
+          <h2 class="section-title">Medicamentos e indicaciones</h2>
           <button type="button" class="ghost-button" data-action="open-create" data-type="treatment">Nuevo tratamiento</button>
         </div>
-        ${treatments.length ? `<div class="cards-grid">${treatments.map(renderTreatmentCard).join("")}</div>` : emptyState("Sin tratamientos", "Aquí puedes guardar medicamentos, terapias o indicaciones temporales.")}
+        ${treatments.length ? `<div class="cards-grid">${treatments.map(renderTreatmentCard).join("")}</div>` : emptyState("Sin tratamientos activos", "Aquí puedes guardar medicamentos, terapias o indicaciones temporales.")}
       </section>
     </section>`;
 }
@@ -477,7 +715,7 @@ export function renderTimeline() {
 
   return `
     <section class="panel">
-      <div class="section-header"><div><p class="eyebrow">Historial unificado</p><h3>Buscar en todo</h3></div></div>
+      <div class="section-header"><h2 class="section-title">Todo tu historial</h2></div>
       <div class="timeline-toolbar">
         <input id="timelineSearch" value="${esc(state.timelineSearch)}" placeholder="Buscar por síntoma, nota, especialidad...">
         <select id="timelineType">
@@ -486,7 +724,7 @@ export function renderTimeline() {
         </select>
         <button type="button" class="ghost-button" data-action="open-create">+ Registrar</button>
       </div>
-      ${timeline.length ? `<div class="timeline-grid">${timeline.map(renderTimelineItem).join("")}</div>` : emptyState("Sin resultados", "No encontré nada con esos filtros. Qué raro, un buscador con límites.")}
+      ${timeline.length ? `<div class="timeline-grid">${timeline.map(renderTimelineItem).join("")}</div>` : emptyState("Sin resultados", "No encontramos nada con esa búsqueda. Prueba con otras palabras.")}
     </section>`;
 }
 
@@ -505,40 +743,122 @@ function renderTimelineItem(item) {
     </article>`;
 }
 
-// --- Datos y backup ---
+// --- Notas ---
+
+export function renderNotes() {
+  const data = scopedData();
+  const notes = sortDesc(data.notes, "createdAt");
+
+  return `
+    <section class="panel">
+      <div class="section-header">
+        <h2 class="section-title">Tus notas</h2>
+        <button type="button" class="primary-button" data-action="open-create" data-type="note">Nueva nota</button>
+      </div>
+      ${notes.length
+        ? `<div class="cards-grid">${notes.map(renderNoteCard).join("")}</div>`
+        : emptyState("Aún no has escrito notas", "Guarda aquí observaciones, preguntas para el médico o recordatorios.")}
+    </section>`;
+}
+
+function renderNoteCard(item) {
+  return `
+    <article class="record-card">
+      <div class="record-header">
+        <div><strong>${esc(item.title)}</strong><p>${formatDate(item.date || item.createdAt)}</p></div>
+        <span class="badge neutral">${esc(item.category || "Nota")}</span>
+      </div>
+      <p>${esc(item.content || "")}</p>
+      <div class="record-meta"><span class="pill ${profileBadgeTone(item.profileId)}">${esc(profileName(item.profileId))}</span></div>
+      <div class="card-actions">${editButton("notes", item.id)}${deleteButton("notes", item.id)}</div>
+    </article>`;
+}
+
+// --- Más ---
+
+export function renderMore() {
+  const person = state.user?.displayName || state.user?.email || "Tu cuenta";
+  return `
+    <section class="stack">
+      <div class="more-list">
+        ${MORE_ITEMS.map((item) => `
+          <button type="button" class="more-item" data-view="${item.id}">
+            <span class="more-icon">${esc(item.icon)}</span>
+            <span>${esc(item.label)}<br><small class="section-subtitle">${esc(item.subtitle)}</small></span>
+            <span class="more-chevron" aria-hidden="true">›</span>
+          </button>
+        `).join("")}
+        <button type="button" class="more-item" data-action="open-account">
+          <span class="more-icon">☺</span>
+          <span>Perfil<br><small class="section-subtitle">${esc(person)}</small></span>
+          <span class="more-chevron" aria-hidden="true">›</span>
+        </button>
+        <button type="button" class="more-item" data-action="open-menu">
+          <span class="more-icon">⚙</span>
+          <span>Ajustes<br><small class="section-subtitle">Personas, copias de seguridad</small></span>
+          <span class="more-chevron" aria-hidden="true">›</span>
+        </button>
+        ${state.user ? `
+          <button type="button" class="more-item danger" data-auth="logout">
+            <span class="more-icon">⏻</span>
+            <span>Cerrar sesión</span>
+          </button>` : ""}
+      </div>
+    </section>`;
+}
+
+// --- Tus datos y copias de seguridad ---
 
 export function renderDataTools() {
-  const totalRecords = APP_CONFIG.collections.reduce((sum, name) => sum + (state.data[name] || []).length, 0);
+  const totalRecords = APP_CONFIG.collections
+    .filter((name) => name !== "profiles")
+    .reduce((sum, name) => sum + (state.data[name] || []).length, 0);
+
   return `
     <section class="stack">
       <div class="dashboard-grid">
-        ${metric("Colecciones", APP_CONFIG.collections.length, "Firestore")}
-        ${metric("Registros", totalRecords, "total")}
-        ${metric("Perfiles", state.data.profiles.length, "activos")}
-        ${metric("Modo", isDemoMode ? "Demo" : "Firebase", "almacenamiento")}
+        ${metric("Registros guardados", totalRecords, "en total")}
+        ${metric("Personas", state.data.profiles.length, "con seguimiento")}
       </div>
+
       <section class="panel">
         <div class="section-header">
           <div>
-            <p class="eyebrow">Backup</p>
-            <h3>Exportar e importar</h3>
-            <p class="section-subtitle">Exporta un JSON completo o importa un backup anterior. Cómodo, como debería haber sido desde el principio.</p>
-          </div>
-          <div class="card-actions">
-            <button type="button" class="ghost-button" data-action="open-import">Importar</button>
-            <button type="button" class="primary-button" data-action="export-json">Exportar JSON</button>
+            <h2 class="section-title">Copia de seguridad</h2>
+            <p class="section-subtitle">Guarda una copia de toda tu información o restaura una copia anterior. No se borra nada.</p>
           </div>
         </div>
-        ${isDemoMode ? `<button type="button" class="danger-button" data-action="load-demo-reset">Restaurar demo local</button>` : ""}
+        <div class="card-actions">
+          <button type="button" class="ghost-button" data-action="open-import">Restaurar copia</button>
+          <button type="button" class="primary-button" data-action="export-json">Guardar copia</button>
+        </div>
+        ${isDemoMode ? `<button type="button" class="danger-button" data-action="load-demo-reset">Reiniciar información de prueba</button>` : ""}
       </section>
+
       <section class="panel">
-        <div class="section-header"><div><p class="eyebrow">Estructura</p><h3>Colecciones usadas</h3></div></div>
-        <div class="cards-grid">
-          ${APP_CONFIG.collections.map((name) => `<article class="record-card"><strong>${name}</strong><p>${(state.data[name] || []).length} registros</p></article>`).join("")}
+        <div class="section-header"><h2 class="section-title">Qué tienes registrado</h2></div>
+        <div class="summary-list">
+          ${DATA_GROUPS.map((group) => `
+            <div class="summary-row">
+              <span class="summary-icon">${esc(group.icon)}</span>
+              <span class="summary-text"><strong>${esc(group.label)}</strong><small>${(state.data[group.collection] || []).length} registro(s)</small></span>
+              <span class="summary-when"></span><span class="summary-chevron"></span>
+            </div>
+          `).join("")}
         </div>
       </section>
     </section>`;
 }
+
+const DATA_GROUPS = [
+  { collection: "dailyLogs", label: "Registros diarios", icon: "☀" },
+  { collection: "symptoms", label: "Síntomas", icon: "♡" },
+  { collection: "bodyStatusEntries", label: "Registros del cuerpo", icon: "◎" },
+  { collection: "appointments", label: "Citas", icon: "▤" },
+  { collection: "checkups", label: "Controles", icon: "✓" },
+  { collection: "treatments", label: "Tratamientos", icon: "✚" },
+  { collection: "notes", label: "Notas", icon: "✎" }
+];
 
 export function renderView() {
   switch (state.activeView) {
@@ -547,6 +867,8 @@ export function renderView() {
     case "symptoms": return renderSymptoms();
     case "appointments": return renderAppointments();
     case "timeline": return renderTimeline();
+    case "notes": return renderNotes();
+    case "more": return renderMore();
     case "data": return renderDataTools();
     default: return renderDashboard();
   }

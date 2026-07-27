@@ -25,10 +25,10 @@ import {
   toast,
   todayISO
 } from "./utils.js";
-import { emptyData, normalizeData, state } from "./state.js";
+import { emptyData, normalizeData, scopedData, state } from "./state.js";
 import {
   activeSymptoms,
-  buildTimeline,
+  computeAlerts,
   dueCheckups,
   upcomingAppointments
 } from "./domain.js";
@@ -39,9 +39,11 @@ import {
   buildRecord,
   preferredTypeForView,
   renderRecordForm,
-  typeForCollection
+  typeForCollection,
+  viewMeta
 } from "./records.js";
 import {
+  renderAlertsList,
   renderAuthState,
   renderBlockedState,
   renderErrorState,
@@ -56,11 +58,17 @@ const refs = {
   nav: $("#mainNav"),
   statusBanner: $("#statusBanner"),
   profileSelector: $("#profileSelector"),
-  viewEyebrow: $("#viewEyebrow"),
   viewTitle: $("#viewTitle"),
   viewSubtitle: $("#viewSubtitle"),
   sessionLabel: $("#sessionLabel"),
   sessionHint: $("#sessionHint"),
+  avatarInitials: $("#avatarInitials"),
+  accountInitials: $("#accountInitials"),
+  alertDot: $("#alertDot"),
+  menuSheet: $("#menuSheet"),
+  alertsSheet: $("#alertsSheet"),
+  alertsMount: $("#alertsMount"),
+  accountSheet: $("#accountSheet"),
   recordDialog: $("#recordDialog"),
   recordTypeGrid: $("#recordTypeGrid"),
   recordFormMount: $("#recordFormMount"),
@@ -104,7 +112,7 @@ async function handleSession(user) {
     state.loading = false;
     state.data = emptyData();
     render();
-    toast("Acceso restringido", "Esta cuenta no está autorizada para la app.", "danger");
+    toast("Sin acceso", "Esta cuenta no tiene acceso a la aplicación.", "danger");
     return;
   }
 
@@ -125,7 +133,7 @@ async function refreshData(successMessage = "Datos actualizados", showToast = tr
     console.error(error);
     state.loading = false;
     state.error = error?.message || "No se pudieron cargar los datos.";
-    toast("No se pudo cargar", state.error, "danger");
+    toast("No pudimos cargar", "Revisa tu conexión e inténtalo de nuevo.", "danger");
   }
 
   render();
@@ -140,14 +148,16 @@ function findRecord(collection, id) {
 async function handleClick(event) {
   const nav = event.target.closest("[data-view]");
   if (nav) {
+    closeSheets();
     state.activeView = nav.dataset.view;
+    window.scrollTo({ top: 0 });
     render();
-    refs.app?.focus();
     return;
   }
 
   const authButton = event.target.closest("[data-auth]");
   if (authButton) {
+    closeSheets();
     if (authButton.dataset.auth === "login") await doLogin(authButton);
     if (authButton.dataset.auth === "logout") await doLogout(authButton);
     return;
@@ -160,7 +170,21 @@ async function handleClick(event) {
 
   try {
     switch (actionName) {
+      case "open-menu":
+        openSheet(refs.menuSheet);
+        break;
+      case "open-alerts":
+        refs.alertsMount.innerHTML = state.user && state.allowed ? renderAlertsList() : "";
+        openSheet(refs.alertsSheet);
+        break;
+      case "open-account":
+        openSheet(refs.accountSheet);
+        break;
+      case "close-sheet":
+        closeSheets();
+        break;
       case "open-create":
+        closeSheets();
         openRecordDialog(type || preferredTypeForView());
         break;
       case "edit-record":
@@ -196,9 +220,11 @@ async function handleClick(event) {
         await logDose(id);
         break;
       case "export-json":
+        closeSheets();
         exportJson();
         break;
       case "open-import":
+        closeSheets();
         refs.importDialog.showModal();
         break;
       case "close-import":
@@ -209,7 +235,7 @@ async function handleClick(event) {
         break;
       case "load-demo-reset":
         localStorage.removeItem("healthtrackerac-demo-data-v2");
-        await refreshData("Demo restaurado");
+        await refreshData("Información de prueba reiniciada");
         break;
       case "reload":
         location.reload();
@@ -219,7 +245,7 @@ async function handleClick(event) {
     }
   } catch (error) {
     console.error(error);
-    toast("Algo falló", error?.message || "No se pudo completar la acción.", "danger");
+    toast("No se pudo completar", error?.message || "Inténtalo de nuevo.", "danger");
   }
 }
 
@@ -231,7 +257,14 @@ function handleInput(event) {
 
   if (event.target.id === "timelineSearch") {
     state.timelineSearch = event.target.value;
+    const caret = event.target.selectionStart;
     render();
+    // Volvemos a poner el cursor donde estaba: el listado se vuelve a dibujar.
+    const field = $("#timelineSearch");
+    if (field) {
+      field.focus();
+      field.setSelectionRange(caret, caret);
+    }
   }
 }
 
@@ -288,7 +321,7 @@ async function doLogout(button) {
     state.user = null;
     state.allowed = false;
     state.data = emptyData();
-    toast("Sesión cerrada", "Listo, la app quedó cerrada.", "success");
+    toast("Sesión cerrada", "Vuelve cuando quieras.", "success");
   } finally {
     button.disabled = false;
     render();
@@ -327,42 +360,51 @@ function render() {
     return;
   }
 
-  refs.quickCheckin.innerHTML = renderQuickCheckin();
+  // El registro rápido vive en "Seguimiento": el resumen se mantiene limpio.
+  refs.quickCheckin.innerHTML = state.activeView === "tracking" ? renderQuickCheckin() : "";
   refs.app.innerHTML = renderView();
+}
+
+function initials(user) {
+  const source = user?.displayName || user?.email || "";
+  const parts = source.replace(/@.*$/, "").split(/[\s._-]+/).filter(Boolean);
+  if (!parts.length) return "··";
+  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
 }
 
 function renderShellState() {
   $$('[data-auth="login"]').forEach((button) => (button.hidden = Boolean(state.user)));
   $$('[data-auth="logout"]').forEach((button) => (button.hidden = !state.user));
 
+  const mark = initials(state.user);
+  refs.avatarInitials.textContent = mark;
+  refs.accountInitials.textContent = mark;
+
+  const alertCount = state.user && state.allowed && !state.loading ? computeAlerts(scopedData()).length : 0;
+  refs.alertDot.hidden = alertCount === 0;
+
   if (!state.authReady) {
-    refs.sessionLabel.textContent = "Verificando acceso...";
-    refs.sessionHint.textContent = isDemoMode ? "Modo demo" : "Conectando con Firebase";
-    refs.statusBanner.textContent = "Preparando la app...";
+    refs.sessionLabel.textContent = "Un momento";
+    refs.sessionHint.textContent = "Estamos abriendo tu información";
+    refs.statusBanner.textContent = "";
     refs.statusBanner.className = "status-banner";
     return;
   }
 
   if (!state.user) {
     refs.sessionLabel.textContent = "Sin sesión";
-    refs.sessionHint.textContent = "Ingresa con Google para cargar datos";
-    refs.statusBanner.textContent = "Inicia sesión para usar la app.";
-    refs.statusBanner.className = "status-banner warning";
+    refs.sessionHint.textContent = "Ingresa para ver tu información";
+    refs.statusBanner.textContent = "Ingresa para ver tu seguimiento.";
+    refs.statusBanner.className = "status-banner";
     return;
   }
 
   refs.sessionLabel.textContent = state.user.displayName || state.user.email || "Sesión activa";
-  refs.sessionHint.textContent = isDemoMode ? "Modo demo local" : state.user.email || "Cuenta conectada";
+  refs.sessionHint.textContent = state.user.email || "";
 
   if (!state.allowed) {
-    refs.statusBanner.textContent = "Esta cuenta no está dentro de los correos autorizados.";
+    refs.statusBanner.textContent = "Esta cuenta no tiene acceso a la aplicación.";
     refs.statusBanner.className = "status-banner danger";
-    return;
-  }
-
-  if (isDemoMode) {
-    refs.statusBanner.textContent = "Modo demo activo: los datos se guardan en este navegador.";
-    refs.statusBanner.className = "status-banner warning";
     return;
   }
 
@@ -372,9 +414,12 @@ function renderShellState() {
 
 function renderNav() {
   const counts = getNavCounts();
+  // Una vista secundaria (Síntomas, Notas, Datos) mantiene "Más" resaltado.
+  const activeTab = NAV_ITEMS.some((item) => item.id === state.activeView) ? state.activeView : "more";
+
   refs.nav.innerHTML = NAV_ITEMS.map((item) => `
-    <button type="button" class="nav-button ${state.activeView === item.id ? "active" : ""}" data-view="${item.id}">
-      <span class="nav-icon">${item.icon}</span>
+    <button type="button" class="nav-button ${activeTab === item.id ? "active" : ""}" data-view="${item.id}" aria-current="${activeTab === item.id ? "page" : "false"}">
+      <span class="nav-icon" aria-hidden="true">${item.icon}</span>
       <span class="nav-label">${item.label}</span>
       ${counts[item.id] ? `<span class="nav-count">${counts[item.id]}</span>` : ""}
     </button>
@@ -382,12 +427,11 @@ function renderNav() {
 }
 
 function getNavCounts() {
+  if (!state.user || !state.allowed || state.loading) return {};
   const data = state.selectedProfileId === "all" ? state.data : scopedForCounts();
   return {
-    tracking: data.dailyLogs.length,
-    symptoms: activeSymptoms(data).length,
     appointments: upcomingAppointments(data).length + dueCheckups(data).length,
-    timeline: buildTimeline(data).length
+    more: activeSymptoms(data).length
   };
 }
 
@@ -401,7 +445,7 @@ function scopedForCounts() {
 
 function renderProfileSelector() {
   const options = [
-    `<option value="all" ${state.selectedProfileId === "all" ? "selected" : ""}>Vista compartida</option>`,
+    `<option value="all" ${state.selectedProfileId === "all" ? "selected" : ""}>Todos</option>`,
     ...state.data.profiles.map((profile) => `<option value="${profile.id}" ${state.selectedProfileId === profile.id ? "selected" : ""}>${profile.name}</option>`)
   ];
   refs.profileSelector.innerHTML = options.join("");
@@ -409,10 +453,22 @@ function renderProfileSelector() {
 }
 
 function renderHeader() {
-  const item = NAV_ITEMS.find((nav) => nav.id === state.activeView) || NAV_ITEMS[0];
-  refs.viewEyebrow.textContent = APP_CONFIG.version;
+  const item = viewMeta(state.activeView);
   refs.viewTitle.textContent = item.title;
   refs.viewSubtitle.textContent = item.subtitle;
+}
+
+// --- Hojas inferiores ---
+
+function openSheet(sheet) {
+  closeSheets();
+  sheet?.showModal();
+}
+
+function closeSheets() {
+  [refs.menuSheet, refs.alertsSheet, refs.accountSheet].forEach((sheet) => {
+    if (sheet?.open) sheet.close();
+  });
 }
 
 // --- Diálogo de registro (crear / editar) ---
@@ -512,7 +568,7 @@ async function saveRecordForm(form) {
 
 async function deleteEntity(collection, id) {
   if (!collection || !id) return;
-  if (!window.confirm("¿Eliminar este registro? No es dramático, pero sí definitivo en Firebase.")) return;
+  if (!window.confirm("¿Quieres eliminar este registro? Esta acción no se puede deshacer.")) return;
 
   const record = findRecord(collection, id);
   await Promise.all((record?.attachments || []).map((file) => deleteAttachment(file.path)));
@@ -583,18 +639,18 @@ function exportJson() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  toast("Backup exportado", "Se descargó el JSON completo.", "success");
+  toast("Copia guardada", "Se descargó una copia de tu información.", "success");
 }
 
 async function doImportJson() {
   const raw = refs.importJson.value.trim();
-  if (!raw) throw new Error("Pega un JSON primero.");
+  if (!raw) throw new Error("Primero pega el contenido de tu copia.");
   const parsed = JSON.parse(raw);
   await importRecords(parsed.data || parsed);
   refs.importJson.value = "";
   refs.importDialog.close();
   await refreshData("Datos importados", false);
-  toast("Importación lista", "Los registros se agregaron o actualizaron.", "success");
+  toast("Copia restaurada", "Tus registros quedaron actualizados.", "success");
 }
 
 window.toggleAllBodyParts = function (buttonEl, state) {
