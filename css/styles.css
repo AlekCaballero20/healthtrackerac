@@ -327,6 +327,68 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .chip.active { background: var(--blue); border-color: var(--blue); color: #fffcf6; }
 
+/* --- Mapa del cuerpo --- */
+
+.body-map { display: grid; place-items: center; padding: 4px 0; }
+.body-figure { width: 100%; max-width: 230px; height: auto; }
+
+.body-region { cursor: pointer; }
+.body-region > * {
+  fill: var(--surface-soft);
+  stroke: var(--line);
+  stroke-width: 1.4;
+  transition: fill .15s ease, stroke .15s ease;
+}
+.body-region.tone-success > * { fill: var(--success-soft); stroke: rgba(47, 125, 85, .45); }
+.body-region.tone-warning > * { fill: var(--warning-soft); stroke: rgba(197, 138, 25, .5); }
+.body-region.tone-danger > * { fill: var(--danger-soft); stroke: rgba(196, 71, 71, .5); }
+.body-region:hover > *, .body-region:focus-visible > * { stroke: var(--blue); stroke-width: 2; }
+.body-region:focus-visible { outline: none; }
+
+.zone-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.zone-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 40px; padding: 8px 14px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--text);
+  font-size: 13px; font-weight: 500;
+}
+.zone-dot {
+  width: 9px; height: 9px; flex: none;
+  border-radius: 50%;
+  background: var(--line); border: 1px solid var(--line);
+}
+.zone-chip.tone-success .zone-dot, .summary-icon.tone-success .zone-dot { background: var(--success); border-color: var(--success); }
+.zone-chip.tone-warning .zone-dot, .summary-icon.tone-warning .zone-dot { background: var(--warning); border-color: var(--warning); }
+.zone-chip.tone-danger .zone-dot, .summary-icon.tone-danger .zone-dot { background: var(--danger); border-color: var(--danger); }
+.zone-chip.tone-success { border-color: rgba(47, 125, 85, .35); background: var(--success-soft); }
+.zone-chip.tone-warning { border-color: rgba(197, 138, 25, .4); background: var(--warning-soft); }
+.zone-chip.tone-danger { border-color: rgba(196, 71, 71, .4); background: var(--danger-soft); }
+
+.map-legend {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; justify-content: center;
+  color: var(--muted); font-size: 12px;
+}
+.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.map-legend i { width: 10px; height: 10px; border-radius: 50%; background: var(--surface-soft); border: 1px solid var(--line); }
+.map-legend i.tone-success { background: var(--success-soft); border-color: var(--success); }
+.map-legend i.tone-warning { background: var(--warning-soft); border-color: var(--warning); }
+.map-legend i.tone-danger { background: var(--danger-soft); border-color: var(--danger); }
+
+/* --- Presión arterial --- */
+
+.bp-latest {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--blue-soft);
+}
+.bp-value strong { display: block; font-size: 28px; font-weight: 700; color: var(--blue); line-height: 1.1; }
+.bp-value small { display: block; color: var(--blue-2); font-size: 12.5px; }
+
+.trend-chart .series-line.low { stroke: var(--blue-2); stroke-dasharray: 5 4; stroke-width: 1.8; }
+.trend-chart .series-dot.low { fill: var(--blue-2); }
+
 /* --- Tarjetas de registro --- */
 
 .cards-grid, .timeline-grid { display: grid; gap: 12px; }

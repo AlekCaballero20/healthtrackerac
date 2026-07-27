@@ -16,6 +16,9 @@ export const state = {
   timelineSearch: "",
   timelineType: "all",
   trackingMetric: "energy",
+  trendMetric: "energy",      // métrica de la tendencia semanal del resumen
+  activeSection: null,        // sección del mapa del cuerpo abierta
+  activeZone: null,           // zona concreta abierta dentro de la sección
   data: emptyData()
 };
 

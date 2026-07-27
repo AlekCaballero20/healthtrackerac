@@ -92,6 +92,16 @@ function bindEvents() {
   document.addEventListener("input", handleInput);
   document.addEventListener("change", handleChange);
   document.addEventListener("submit", handleSubmit);
+  document.addEventListener("keydown", handleKeydown);
+}
+
+// Las zonas del mapa son formas SVG: les damos soporte de teclado.
+function handleKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const zone = event.target.closest?.('[role="button"][data-action]');
+  if (!zone) return;
+  event.preventDefault();
+  zone.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 // --- Sesión / datos ---
@@ -150,6 +160,8 @@ async function handleClick(event) {
   if (nav) {
     closeSheets();
     state.activeView = nav.dataset.view;
+    state.activeSection = null;
+    state.activeZone = null;
     window.scrollTo({ top: 0 });
     render();
     return;
@@ -201,6 +213,26 @@ async function handleClick(event) {
         state.trackingMetric = metric;
         render();
         break;
+      case "set-trend-metric":
+        state.trendMetric = metric;
+        render();
+        break;
+      case "open-section":
+        state.activeSection = action.dataset.section;
+        state.activeZone = null;
+        window.scrollTo({ top: 0 });
+        render();
+        break;
+      case "open-zone":
+        state.activeZone = action.dataset.zone;
+        window.scrollTo({ top: 0 });
+        render();
+        break;
+      case "close-section":
+        if (state.activeZone) state.activeZone = null;
+        else state.activeSection = null;
+        render();
+        break;
       case "delete-record":
         await deleteEntity(collection, id);
         break;
@@ -234,7 +266,7 @@ async function handleClick(event) {
         await doImportJson();
         break;
       case "load-demo-reset":
-        localStorage.removeItem("healthtrackerac-demo-data-v2");
+        localStorage.removeItem("healthtrackerac-demo-data-v3");
         await refreshData("Información de prueba reiniciada");
         break;
       case "reload":

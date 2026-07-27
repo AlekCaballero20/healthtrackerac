@@ -24,13 +24,21 @@ import {
   computeAlerts,
   dosesThisWeek,
   dosesToday,
+  bpAverage,
+  bpLevel,
+  bpSeries,
+  bodyMapSummary,
   dueCheckups,
   lastDose,
   lastSymptomDate,
   metricSeries,
   nextAppointment,
   pendingCheckups,
+  recordsForZone,
+  sortedVitals,
   trendLabel,
+  zoneStatus,
+  latestVitals,
   upcomingAppointments,
   weekSeries
 } from "./domain.js";
@@ -241,7 +249,7 @@ function renderDayStatus(data, alerts) {
 
 const QUICK_ACTIONS = [
   { type: "symptom", label: "Registrar<br>síntoma", icon: ICONS.plus, tone: "" },
-  { type: "daily", label: "Agregar<br>medición", icon: ICONS.heartPlus, tone: "green" },
+  { type: "vitals", label: "Agregar<br>medición", icon: ICONS.heartPlus, tone: "green" },
   { type: "appointment", label: "Agendar<br>cita", icon: ICONS.calendar, tone: "amber" },
   { type: "note", label: "Nueva<br>nota", icon: ICONS.note, tone: "" }
 ];
@@ -319,6 +327,19 @@ function renderTodaySummary(data) {
     }));
   }
 
+  const bp = latestVitals(data);
+  if (bp) {
+    const level = bpLevel(bp.systolic, bp.diastolic);
+    rows.push(summaryRow({
+      view: "tracking",
+      tone: level && level.tone !== "success" ? level.tone : "",
+      icon: ICONS.heart,
+      title: "Presión arterial",
+      detail: `${bp.systolic}/${bp.diastolic} mmHg${level ? ` · ${level.label}` : ""}`,
+      when: relativeDay(bp.date)
+    }));
+  }
+
   const note = sortDesc(data.notes, "createdAt")[0];
   if (note) {
     rows.push(summaryRow({
@@ -357,10 +378,18 @@ function relativeDay(dateString) {
   return formatDateShort(String(dateString).slice(0, 10));
 }
 
+// Métricas de la tendencia semanal del resumen (incluye la presión arterial).
+const TREND_METRICS = [
+  { id: "energy", label: "Energía", max: 10, unit: "/10", source: "daily" },
+  { id: "painLevel", label: "Dolor", max: 10, unit: "/10", source: "daily" },
+  { id: "sleepHours", label: "Sueño", max: 12, unit: " h", source: "daily" },
+  { id: "bloodPressure", label: "Presión", max: 160, min: 40, unit: "", source: "vitals" }
+];
+
 // Gráfica de línea sencilla, dibujada con SVG (sin librerías externas).
 function renderWeekTrend(data) {
-  const meta = CHART_METRICS.find((item) => item.id === state.trackingMetric) || CHART_METRICS[0];
-  const series = weekSeries(data.dailyLogs, meta.id);
+  const meta = TREND_METRICS.find((item) => item.id === state.trendMetric) || TREND_METRICS[0];
+  const series = meta.source === "vitals" ? bpSeries(data) : weekSeries(data.dailyLogs, meta.id);
   const trend = trendLabel(series);
 
   const body = series.length < 2
@@ -374,9 +403,10 @@ function renderWeekTrend(data) {
         ${trend ? `<span class="trend-tag ${trend.tone === "success" ? "" : "warning"}">${esc(trend.text)}</span>` : ""}
       </div>
       <div class="chart-tabs">
-        ${CHART_METRICS.map((item) => `<button type="button" class="chip ${item.id === meta.id ? "active" : ""}" data-action="set-chart-metric" data-metric="${item.id}">${esc(item.label)}</button>`).join("")}
+        ${TREND_METRICS.map((item) => `<button type="button" class="chip ${item.id === meta.id ? "active" : ""}" data-action="set-trend-metric" data-metric="${item.id}">${esc(item.label)}</button>`).join("")}
       </div>
       ${body}
+      ${meta.source === "vitals" && series.length > 1 ? `<p class="section-subtitle">Línea llena: presión alta. Línea punteada: presión baja.</p>` : ""}
     </section>`;
 }
 
@@ -387,8 +417,9 @@ function lineChart(series, meta) {
   const padRight = 10;
   const padTop = 12;
   const padBottom = 24;
+  const lows = series.map((point) => point.low).filter((value) => Number.isFinite(value));
   const max = Math.max(meta.max, ...series.map((point) => point.value));
-  const min = 0;
+  const min = meta.min ?? 0;
   const stepX = (width - padLeft - padRight) / Math.max(1, series.length - 1);
   const toY = (value) => padTop + (1 - (value - min) / (max - min || 1)) * (height - padTop - padBottom);
 
@@ -398,6 +429,10 @@ function lineChart(series, meta) {
     label: formatDateShort(point.date),
     last: index === series.length - 1
   }));
+
+  const lowPoints = lows.length === series.length
+    ? series.map((point, index) => ({ x: padLeft + index * stepX, y: toY(point.low) }))
+    : [];
 
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(min + ratio * (max - min)));
 
@@ -409,6 +444,9 @@ function lineChart(series, meta) {
         <text class="axis-text" x="0" y="${(toY(tick) + 3).toFixed(1)}">${tick}</text>
       `).join("")}
       <polyline class="series-line" points="${points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}"/>
+      ${lowPoints.length ? `
+        <polyline class="series-line low" points="${lowPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}"/>
+        ${lowPoints.map((point) => `<circle class="series-dot low" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="2.6"/>`).join("")}` : ""}
       ${points.map((point) => `<circle class="series-dot" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3"/>`).join("")}
       ${points.map((point) => `<text class="axis-text ${point.last ? "today" : ""}" x="${point.x.toFixed(1)}" y="${height - 6}" text-anchor="middle">${esc(point.last ? "Hoy" : point.label)}</text>`).join("")}
     </svg>`;
@@ -485,6 +523,8 @@ export function renderTracking() {
           </article>
         `).join("")}
       </section>
+
+      ${renderVitalsPanel(data)}
 
       <section class="panel">
         <div class="section-header"><h2 class="section-title">Registros recientes</h2></div>
@@ -720,7 +760,7 @@ export function renderTimeline() {
         <input id="timelineSearch" value="${esc(state.timelineSearch)}" placeholder="Buscar por síntoma, nota, especialidad...">
         <select id="timelineType">
           <option value="all" ${state.timelineType === "all" ? "selected" : ""}>Todos los tipos</option>
-          ${["daily", "symptom", "body", "appointment", "checkup", "treatment", "note"].map((type) => `<option value="${type}" ${state.timelineType === type ? "selected" : ""}>${typeLabel(type)}</option>`).join("")}
+          ${["daily", "symptom", "body", "vitals", "appointment", "checkup", "treatment", "note"].map((type) => `<option value="${type}" ${state.timelineType === type ? "selected" : ""}>${typeLabel(type)}</option>`).join("")}
         </select>
         <button type="button" class="ghost-button" data-action="open-create">+ Registrar</button>
       </div>
@@ -740,6 +780,227 @@ function renderTimelineItem(item) {
         <span class="pill ${profileBadgeTone(item.profileId)}">${esc(item.profileName)}</span>
         ${item.meta ? `<span class="pill neutral">${esc(item.meta)}</span>` : ""}
       </div>
+    </article>`;
+}
+
+// --- Mapa del cuerpo ---
+
+const ZONE_TONE = { danger: "danger", warning: "warning", ok: "success", empty: "" };
+const ZONE_WORD = {
+  danger: "Necesita atención",
+  warning: "Con novedad",
+  ok: "Sin novedades",
+  empty: "Sin registros"
+};
+
+// Regiones dibujadas de la silueta. El resto de secciones va en fichas aparte.
+const SILHOUETTE = [
+  { id: "cabeza", shape: `<ellipse cx="100" cy="40" rx="25" ry="29"/><rect x="92" y="66" width="16" height="14" rx="6"/>` },
+  { id: "pecho", shape: `<rect x="62" y="78" width="76" height="66" rx="20"/>` },
+  { id: "abdomen", shape: `<rect x="68" y="148" width="64" height="60" rx="18"/>` },
+  { id: "brazos", shape: `<rect x="34" y="84" width="24" height="112" rx="12"/><rect x="142" y="84" width="24" height="112" rx="12"/>` },
+  { id: "piernas", shape: `<rect x="70" y="212" width="27" height="150" rx="13"/><rect x="103" y="212" width="27" height="150" rx="13"/>` }
+];
+
+const SILHOUETTE_IDS = SILHOUETTE.map((region) => region.id);
+
+export function renderBodyMap() {
+  const data = scopedData();
+
+  if (state.activeZone) return renderZoneDetail(data, state.activeZone);
+  if (state.activeSection) return renderSectionDetail(data, state.activeSection);
+
+  const sections = bodyMapSummary(data);
+  const byId = Object.fromEntries(sections.map((section) => [section.id, section]));
+  const needing = sections.filter((section) => section.status === "danger" || section.status === "warning");
+  const extras = sections.filter((section) => !SILHOUETTE_IDS.includes(section.id));
+
+  return `
+    <section class="stack">
+      <section class="panel">
+        <div class="section-header">
+          <h2 class="section-title">Toca una zona</h2>
+          <button type="button" class="soft-button" data-action="open-create" data-type="body">Registrar zona</button>
+        </div>
+        <p class="section-subtitle">
+          ${needing.length
+            ? `${needing.length} sección${needing.length > 1 ? "es" : ""} con algo por revisar: ${esc(needing.map((section) => section.label).join(", "))}.`
+            : "Ninguna zona tiene novedades pendientes."}
+        </p>
+
+        <div class="body-map">
+          <svg class="body-figure" viewBox="0 0 200 380" role="group" aria-label="Mapa del cuerpo">
+            ${SILHOUETTE.map((region) => {
+              const section = byId[region.id];
+              return `<g class="body-region tone-${ZONE_TONE[section.status] || "empty"}" role="button" tabindex="0"
+                          data-action="open-section" data-section="${region.id}"
+                          aria-label="${esc(section.label)}: ${esc(ZONE_WORD[section.status])}">${region.shape}</g>`;
+            }).join("")}
+          </svg>
+        </div>
+
+        <div class="zone-chips">
+          ${extras.map((section) => `
+            <button type="button" class="zone-chip tone-${ZONE_TONE[section.status] || "empty"}" data-action="open-section" data-section="${section.id}">
+              <span class="zone-dot"></span>${esc(section.label)}
+            </button>
+          `).join("")}
+        </div>
+
+        <div class="map-legend">
+          <span><i class="tone-success"></i>Sin novedades</span>
+          <span><i class="tone-warning"></i>Con novedad</span>
+          <span><i class="tone-danger"></i>Necesita atención</span>
+          <span><i class="tone-empty"></i>Sin registros</span>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title" style="margin-bottom:10px">Todas las secciones</h2>
+        <div class="summary-list">
+          ${sections.map((section) => `
+            <button type="button" class="summary-row ${ZONE_TONE[section.status] ? `tone-${ZONE_TONE[section.status]}` : ""}" data-action="open-section" data-section="${section.id}">
+              <span class="summary-icon ${ZONE_TONE[section.status] ? `tone-${ZONE_TONE[section.status]}` : ""}">${section.zones.length}</span>
+              <span class="summary-text">
+                <strong>${esc(section.label)}</strong>
+                <small>${esc(ZONE_WORD[section.status])} · ${section.records} registro${section.records === 1 ? "" : "s"}</small>
+              </span>
+              <span class="summary-when">${section.attention ? `${section.attention} ⚑` : ""}</span>
+              <span class="summary-chevron" aria-hidden="true">›</span>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+    </section>`;
+}
+
+function renderSectionDetail(data, sectionId) {
+  const section = bodyMapSummary(data).find((item) => item.id === sectionId);
+  if (!section) return renderBodyMap();
+
+  return `
+    <section class="stack">
+      <button type="button" class="link-button" data-action="close-section">‹ Volver al mapa</button>
+
+      <section class="panel">
+        <div class="section-header">
+          <h2 class="section-title">${esc(section.label)}</h2>
+          <span class="badge ${ZONE_TONE[section.status] || "neutral"}">${esc(ZONE_WORD[section.status])}</span>
+        </div>
+        <p class="section-subtitle">Toca una zona para ver todo lo que has registrado en ella.</p>
+        <div class="summary-list">
+          ${section.zones.map((zone) => `
+            <button type="button" class="summary-row ${ZONE_TONE[zone.status] ? `tone-${ZONE_TONE[zone.status]}` : ""}" data-action="open-zone" data-zone="${esc(zone.zone)}">
+              <span class="summary-icon ${ZONE_TONE[zone.status] ? `tone-${ZONE_TONE[zone.status]}` : ""}"><span class="zone-dot"></span></span>
+              <span class="summary-text"><strong>${esc(zone.zone)}</strong><small>${esc(ZONE_WORD[zone.status])}</small></span>
+              <span class="summary-when">${zone.count || ""}</span>
+              <span class="summary-chevron" aria-hidden="true">›</span>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+    </section>`;
+}
+
+const ZONE_RECORD_LABEL = {
+  symptom: "Síntoma",
+  body: "Registro de zona",
+  appointment: "Cita",
+  checkup: "Control",
+  treatment: "Tratamiento",
+  note: "Nota"
+};
+
+function renderZoneDetail(data, zone) {
+  const rows = recordsForZone(data, zone);
+  const status = zoneStatus(data, zone);
+
+  return `
+    <section class="stack">
+      <button type="button" class="link-button" data-action="close-section">‹ Volver</button>
+
+      <section class="panel">
+        <div class="section-header">
+          <h2 class="section-title">${esc(zone)}</h2>
+          <span class="badge ${ZONE_TONE[status] || "neutral"}">${esc(ZONE_WORD[status])}</span>
+        </div>
+        <div class="card-actions">
+          <button type="button" class="soft-button" data-action="open-create" data-type="symptom">Registrar síntoma</button>
+          <button type="button" class="primary-button" data-action="open-create" data-type="body">Registrar zona</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-header"><h2 class="section-title">Todo lo de esta zona</h2></div>
+        ${rows.length
+          ? `<div class="timeline-grid">${rows.map(renderZoneRow).join("")}</div>`
+          : emptyState("Sin registros en esta zona", "Cuando registres algo y elijas esta zona, aparecerá aquí.")}
+      </section>
+    </section>`;
+}
+
+function renderZoneRow({ kind, collection, item, date }) {
+  const title = item.name || item.medication || item.specialty || item.title || item.symptom || item.bodyPart;
+  const detail = item.notes || item.observations || item.content || item.reason || item.symptom || item.dose || "";
+  return `
+    <article class="timeline-item">
+      <div class="record-header">
+        <div><strong>${esc(title || "Registro")}</strong><p>${formatDate(date)}</p></div>
+        <span class="badge neutral">${esc(ZONE_RECORD_LABEL[kind] || "Registro")}</span>
+      </div>
+      ${detail ? `<p>${esc(detail)}</p>` : ""}
+      <div class="card-actions">${editButton(collection, item.id)}</div>
+    </article>`;
+}
+
+// --- Presión arterial ---
+
+export function renderVitalsPanel(data) {
+  const list = sortedVitals(data);
+  const latest = list[0];
+  const level = latest ? bpLevel(latest.systolic, latest.diastolic) : null;
+  const average = bpAverage(data);
+
+  return `
+    <section class="panel">
+      <div class="section-header">
+        <h2 class="section-title">Presión arterial</h2>
+        <button type="button" class="primary-button" data-action="open-create" data-type="vitals">Nueva toma</button>
+      </div>
+
+      ${latest ? `
+        <div class="bp-latest">
+          <div class="bp-value">
+            <strong>${esc(latest.systolic)}/${esc(latest.diastolic)}</strong>
+            <small>mmHg · ${formatDate(latest.date)}${latest.time ? ` · ${esc(latest.time)}` : ""}</small>
+          </div>
+          ${level ? `<span class="badge ${level.tone}">${esc(level.label)}</span>` : ""}
+        </div>
+        ${average ? `<p class="section-subtitle">Promedio de los últimos 7 días: <strong>${average.systolic}/${average.diastolic}</strong> (${average.count} toma${average.count === 1 ? "" : "s"}).</p>` : ""}
+        <p class="section-subtitle">Esta clasificación es solo una referencia para tu seguimiento; no reemplaza la valoración de tu médico.</p>
+        <div class="timeline-grid">${list.slice(0, 8).map(renderVitalsCard).join("")}</div>
+      ` : emptyState("Aún no has registrado tu presión", "Guarda una toma y aquí verás tu último valor, el promedio de la semana y su evolución.")}
+    </section>`;
+}
+
+function renderVitalsCard(item) {
+  const level = bpLevel(item.systolic, item.diastolic);
+  return `
+    <article class="record-card">
+      <div class="record-header">
+        <div>
+          <strong>${esc(item.systolic)}/${esc(item.diastolic)} mmHg</strong>
+          <p>${formatDate(item.date)}${item.time ? ` · ${esc(item.time)}` : ""} · ${esc(profileName(item.profileId))}</p>
+        </div>
+        ${level ? `<span class="badge ${level.tone}">${esc(level.label)}</span>` : ""}
+      </div>
+      <div class="record-meta">
+        ${item.pulse ? `<span class="pill neutral">Pulso ${esc(item.pulse)}</span>` : ""}
+        ${item.moment ? `<span class="pill neutral">${esc(item.moment)}</span>` : ""}
+        ${item.arm ? `<span class="pill neutral">Brazo ${esc(item.arm.toLowerCase())}</span>` : ""}
+      </div>
+      ${item.notes ? `<p>${esc(item.notes)}</p>` : ""}
+      <div class="card-actions">${editButton("vitals", item.id)}${deleteButton("vitals", item.id)}</div>
     </article>`;
 }
 
@@ -857,6 +1118,7 @@ const DATA_GROUPS = [
   { collection: "appointments", label: "Citas", icon: "▤" },
   { collection: "checkups", label: "Controles", icon: "✓" },
   { collection: "treatments", label: "Tratamientos", icon: "✚" },
+  { collection: "vitals", label: "Tomas de presión", icon: "♥" },
   { collection: "notes", label: "Notas", icon: "✎" }
 ];
 
@@ -867,6 +1129,7 @@ export function renderView() {
     case "symptoms": return renderSymptoms();
     case "appointments": return renderAppointments();
     case "timeline": return renderTimeline();
+    case "body": return renderBodyMap();
     case "notes": return renderNotes();
     case "more": return renderMore();
     case "data": return renderDataTools();

@@ -12,7 +12,7 @@ import {
   toneByPain
 } from "./utils.js";
 import { profileName } from "./state.js";
-import { BODY_PARTS } from "./config.js";
+import { BODY_MAP, BODY_PARTS, BP_LEVELS } from "./config.js";
 
 const OPEN_SYMPTOM_STATES = ["activo", "en observación", "mejorando"];
 const OPEN_APPOINTMENT_STATES = ["agendada", "pendiente"];
@@ -117,6 +117,20 @@ export function computeAlerts(data) {
     }
   });
 
+  const latest = latestVitals(data);
+  if (latest) {
+    const level = bpLevel(latest.systolic, latest.diastolic);
+    if (level && (level.tone === "danger" || level.id === "alta-1" || level.id === "baja")) {
+      alerts.push({
+        level: level.tone === "danger" ? "danger" : "warning",
+        title: `Presión ${level.label.toLowerCase()}`,
+        description: `Última toma: ${latest.systolic}/${latest.diastolic} el ${formatDate(latest.date)}.`,
+        profileName: profileName(latest.profileId),
+        profileId: latest.profileId
+      });
+    }
+  }
+
   const weight = { danger: 3, warning: 2, info: 1 };
   return alerts.sort((a, b) => weight[b.level] - weight[a.level]);
 }
@@ -153,8 +167,141 @@ export function buildTimeline(data) {
   data.appointments.forEach((item) => rows.push({ type: "appointment", profileId: item.profileId, profileName: profileName(item.profileId), title: `${item.specialty}: ${item.reason}`, description: item.notes || item.location || "Cita médica", createdAt: `${item.date || todayISO()}T${item.time || "09:00"}:00`, meta: item.status, tone: appointmentTone(item) }));
   data.checkups.forEach((item) => rows.push({ type: "checkup", profileId: item.profileId, profileName: profileName(item.profileId), title: item.name, description: item.observations || `Cada ${item.frequencyMonths || "?"} meses`, createdAt: `${item.idealNextDate || item.createdAt || todayISO()}T09:00:00`, meta: item.status, tone: item.status === "atrasado" ? "warning" : "success" }));
   data.treatments.forEach((item) => rows.push({ type: "treatment", profileId: item.profileId, profileName: profileName(item.profileId), title: item.medication, description: item.notes || item.dose || "Tratamiento", createdAt: item.createdAt || item.startDate, meta: item.active ? "activo" : "pausado", tone: item.active ? "success" : "neutral" }));
+  (data.vitals || []).forEach((item) => {
+    const level = bpLevel(item.systolic, item.diastolic);
+    rows.push({
+      type: "vitals",
+      profileId: item.profileId,
+      profileName: profileName(item.profileId),
+      title: `Presión ${item.systolic}/${item.diastolic}`,
+      description: [item.pulse ? `Pulso ${item.pulse}` : "", item.moment, item.notes].filter(Boolean).join(" · ") || "Toma de presión",
+      createdAt: `${item.date || todayISO()}T${item.time || "08:00"}:00`,
+      meta: level ? level.label : "",
+      tone: level ? level.tone : "neutral"
+    });
+  });
   data.notes.forEach((item) => rows.push({ type: "note", profileId: item.profileId, profileName: profileName(item.profileId), title: item.title, description: item.content, createdAt: item.createdAt || item.date, meta: item.category, tone: "neutral" }));
   return sortDesc(rows, "createdAt");
+}
+
+// --- Presión arterial ---
+
+// Clasifica una toma. Es una referencia informativa, no un diagnóstico.
+export function bpLevel(systolic, diastolic) {
+  const sys = Number(systolic || 0);
+  const dia = Number(diastolic || 0);
+  if (!sys || !dia) return null;
+  return BP_LEVELS.find((level) => level.test(sys, dia)) || null;
+}
+
+export function sortedVitals(data) {
+  return sortDesc(data.vitals || [], "date");
+}
+
+export function latestVitals(data) {
+  return sortedVitals(data)[0] || null;
+}
+
+// Promedio de las tomas de los últimos días (por defecto, una semana).
+export function bpAverage(data, days = 7) {
+  const since = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+  const list = (data.vitals || []).filter((item) => String(item.date || "") >= since);
+  if (!list.length) return null;
+  const avg = (field) => Math.round(list.reduce((sum, item) => sum + Number(item[field] || 0), 0) / list.length);
+  return { systolic: avg("systolic"), diastolic: avg("diastolic"), count: list.length };
+}
+
+// Serie para la gráfica: un punto por día (el promedio si hubo varias tomas).
+export function bpSeries(data, limit = 7) {
+  const byDate = new Map();
+  (data.vitals || []).forEach((item) => {
+    if (!item.date) return;
+    const bucket = byDate.get(item.date) || [];
+    bucket.push(item);
+    byDate.set(item.date, bucket);
+  });
+  return [...byDate.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .slice(0, limit)
+    .reverse()
+    .map(([date, list]) => ({
+      date,
+      value: Math.round(list.reduce((sum, item) => sum + Number(item.systolic || 0), 0) / list.length),
+      low: Math.round(list.reduce((sum, item) => sum + Number(item.diastolic || 0), 0) / list.length)
+    }));
+}
+
+// --- Mapa del cuerpo ---
+
+// Devuelve todo lo registrado que apunta a una zona concreta del cuerpo.
+export function recordsForZone(data, zone) {
+  const rows = [];
+  data.symptoms.forEach((item) => {
+    if (item.bodyPart === zone) rows.push({ kind: "symptom", collection: "symptoms", item, date: item.startDate || item.createdAt });
+  });
+  data.bodyStatusEntries.forEach((item) => {
+    if (item.bodyPart === zone) rows.push({ kind: "body", collection: "bodyStatusEntries", item, date: item.startDate || item.createdAt });
+  });
+  data.appointments.forEach((item) => {
+    if (item.bodyPart === zone) rows.push({ kind: "appointment", collection: "appointments", item, date: item.date });
+  });
+  data.checkups.forEach((item) => {
+    if (item.bodyPart === zone) rows.push({ kind: "checkup", collection: "checkups", item, date: item.idealNextDate || item.createdAt });
+  });
+  data.treatments.forEach((item) => {
+    if (item.bodyPart === zone) rows.push({ kind: "treatment", collection: "treatments", item, date: item.startDate || item.createdAt });
+  });
+  data.notes.forEach((item) => {
+    if (item.bodyPart === zone) rows.push({ kind: "note", collection: "notes", item, date: item.date || item.createdAt });
+  });
+  return sortDesc(rows, "date");
+}
+
+// Estado de una zona: "danger", "warning", "ok" o "empty".
+export function zoneStatus(data, zone) {
+  const open = data.symptoms.filter(
+    (item) => item.bodyPart === zone && OPEN_SYMPTOM_STATES.includes(item.status)
+  );
+  const openBody = data.bodyStatusEntries.filter(
+    (item) => item.bodyPart === zone && !item.reviewed
+  );
+
+  if (open.some((item) => Number(item.intensity) >= 7) || openBody.some((item) => Number(item.intensity) >= 7)) {
+    return "danger";
+  }
+  if (open.length || openBody.length) return "warning";
+
+  // Si la zona quedó sin marcar en el último chequeo rápido, también avisa.
+  const lastLog = sortDesc(data.dailyLogs, "date")[0];
+  if (lastLog && Array.isArray(lastLog.bodyPartsOk) && !lastLog.bodyPartsOk.includes(zone)) {
+    return "warning";
+  }
+
+  return recordsForZone(data, zone).length ? "ok" : "empty";
+}
+
+const STATUS_WEIGHT = { danger: 3, warning: 2, ok: 1, empty: 0 };
+
+// Resumen por sección: estado peor de sus zonas y cuántas necesitan atención.
+export function bodyMapSummary(data) {
+  return BODY_MAP.map((section) => {
+    const zones = section.zones.map((zone) => ({
+      zone,
+      status: zoneStatus(data, zone),
+      count: recordsForZone(data, zone).length
+    }));
+    const status = zones.reduce(
+      (worst, item) => (STATUS_WEIGHT[item.status] > STATUS_WEIGHT[worst] ? item.status : worst),
+      "empty"
+    );
+    return {
+      ...section,
+      zones,
+      status,
+      attention: zones.filter((item) => item.status === "danger" || item.status === "warning").length,
+      records: zones.reduce((sum, item) => sum + item.count, 0)
+    };
+  });
 }
 
 // --- Derivados para el resumen del día ---

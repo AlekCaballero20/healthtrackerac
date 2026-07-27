@@ -3,6 +3,7 @@
 // genéricos producen el HTML y el objeto a guardar (sirve para crear y editar).
 
 import {
+  BODY_MAP,
   BODY_PARTS,
   CHECKUP_TYPES,
   FREQUENCY_OPTIONS,
@@ -32,6 +33,7 @@ export const NAV_ITEMS = [
 
 // Vistas secundarias, accesibles desde "Más".
 export const MORE_ITEMS = [
+  { id: "body", label: "Mapa del cuerpo", icon: "◎", title: "Mapa del cuerpo", subtitle: "Cómo va cada zona de tu cuerpo" },
   { id: "symptoms", label: "Síntomas", icon: "♡", title: "Síntomas", subtitle: "Molestias registradas y su evolución" },
   { id: "notes", label: "Notas", icon: "✎", title: "Notas", subtitle: "Observaciones y recordatorios" },
   { id: "data", label: "Datos personales", icon: "▣", title: "Tus datos", subtitle: "Tus registros y copias de seguridad" }
@@ -49,6 +51,7 @@ export const RECORD_TYPES = [
   { id: "body", label: "Cuerpo", icon: "◎", hint: "Parte del cuerpo específica" },
   { id: "appointment", label: "Cita", icon: "☉", hint: "Agenda médica" },
   { id: "checkup", label: "Control", icon: "✓", hint: "Chequeo periódico" },
+  { id: "vitals", label: "Presión arterial", icon: "♥", hint: "Presión y pulso" },
   { id: "treatment", label: "Tratamiento", icon: "✚", hint: "Medicamento o indicación" },
   { id: "note", label: "Nota", icon: "✎", hint: "Observación libre" }
 ];
@@ -60,7 +63,8 @@ export const COLLECTION_BY_TYPE = {
   appointment: "appointments",
   checkup: "checkups",
   treatment: "treatments",
-  note: "notes"
+  note: "notes",
+  vitals: "vitals"
 };
 
 const TYPE_BY_COLLECTION = Object.fromEntries(
@@ -83,6 +87,8 @@ export function preferredTypeForView() {
     appointments: "appointment",
     timeline: "note",
     notes: "note",
+    body: "body",
+    vitals: "vitals",
     data: "note",
     more: "note"
   }[state.activeView] || "daily";
@@ -112,7 +118,7 @@ const RECORD_SCHEMAS = {
   symptom: [
     { name: "profileId", kind: "profile" },
     { name: "name", kind: "text", label: "Nombre del síntoma", required: true, requiredMsg: "Escribe el síntoma.", placeholder: "Ej. Migraña, acidez, fatiga" },
-    { name: "bodyPart", kind: "select", label: "Parte del cuerpo afectada", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
+    { name: "bodyPart", kind: "zone", label: "Zona del cuerpo afectada", required: true, requiredMsg: "Elige una zona del cuerpo." },
     { name: "intensity", kind: "range", label: "Intensidad del síntoma (1 al 10)", min: 1, max: 10, default: 4 },
     { name: "duration", kind: "text", label: "Duración aproximada", required: true, requiredMsg: "Indica la duración.", placeholder: "Ej. 2 horas, todo el día" },
     { name: "frequency", kind: "select", label: "Frecuencia", options: FREQUENCY_OPTIONS, default: "Ocasional" },
@@ -124,7 +130,7 @@ const RECORD_SCHEMAS = {
   ],
   body: [
     { name: "profileId", kind: "profile" },
-    { name: "bodyPart", kind: "select", label: "Parte del cuerpo bajo seguimiento", options: BODY_PARTS, required: true, requiredMsg: "Elige una parte del cuerpo." },
+    { name: "bodyPart", kind: "zone", label: "Zona del cuerpo bajo seguimiento", required: true, requiredMsg: "Elige una zona del cuerpo." },
     { name: "status", kind: "select", label: "Estado de esta zona", options: STATUS_OPTIONS, default: "En observación" },
     { name: "symptom", kind: "text", label: "Qué sientes en esta parte", required: true, requiredMsg: "Describe la molestia.", full: true, placeholder: "Qué se siente o qué cambió" },
     { name: "intensity", kind: "range", label: "Intensidad de la molestia (1 al 10)", min: 1, max: 10, default: 3 },
@@ -142,6 +148,7 @@ const RECORD_SCHEMAS = {
     { name: "time", kind: "time", label: "Hora", required: true, requiredMsg: "Indica la hora.", default: "09:00" },
     { name: "location", kind: "text", label: "Lugar", placeholder: "Sede, dirección o link" },
     { name: "status", kind: "select", label: "Estado", options: ["agendada", "pendiente", "realizada", "cancelada"], default: "agendada" },
+    { name: "bodyPart", kind: "zone", label: "Zona del cuerpo relacionada" },
     { name: "reason", kind: "text", label: "Motivo", required: true, requiredMsg: "Escribe el motivo.", full: true, placeholder: "Por qué se agenda" },
     { name: "notes", kind: "textarea", label: "Resultado / próximos pasos", full: true }
   ],
@@ -153,6 +160,7 @@ const RECORD_SCHEMAS = {
     { name: "idealNextDate", kind: "date", label: "Próxima fecha ideal", default: (v) => v.idealNextDate || calculateNextDate(v.lastDoneDate || todayISO(), v.frequencyMonths || 6), coerce: (raw, fd) => raw || calculateNextDate(fd.lastDoneDate, fd.frequencyMonths) },
     { name: "status", kind: "select", label: "Estado", options: ["al día", "por vencer", "atrasado"], default: "al día" },
     { name: "priority", kind: "select", label: "Prioridad", options: ["baja", "media", "alta", "urgente"], default: "media" },
+    { name: "bodyPart", kind: "zone", label: "Zona del cuerpo relacionada" },
     { name: "observations", kind: "textarea", label: "Observaciones", full: true }
   ],
   treatment: [
@@ -164,13 +172,26 @@ const RECORD_SCHEMAS = {
     { name: "times", kind: "text", label: "Horarios", placeholder: "Ej. 8:00, 14:00, 20:00" },
     { name: "startDate", kind: "date", label: "Inicio", required: true, requiredMsg: "Indica el inicio.", default: todayISO },
     { name: "endDate", kind: "date", label: "Fin estimado" },
+    { name: "bodyPart", kind: "zone", label: "Zona del cuerpo relacionada" },
     { name: "active", kind: "select", label: "Estado", options: ["activo", "pausado"], get: (v) => (v.active === false ? "pausado" : "activo"), coerce: (raw) => raw === "activo" },
     { name: "notes", kind: "textarea", label: "Notas", full: true }
+  ],
+  vitals: [
+    { name: "profileId", kind: "profile" },
+    { name: "date", kind: "date", label: "Fecha", required: true, requiredMsg: "Indica la fecha.", default: todayISO },
+    { name: "time", kind: "time", label: "Hora", default: "08:00" },
+    { name: "systolic", kind: "number", label: "Presión alta (sistólica)", min: 50, max: 260, step: 1, default: 120 },
+    { name: "diastolic", kind: "number", label: "Presión baja (diastólica)", min: 30, max: 160, step: 1, default: 80 },
+    { name: "pulse", kind: "number", label: "Pulso (latidos por minuto)", min: 30, max: 220, step: 1, default: 70 },
+    { name: "moment", kind: "select", label: "Momento de la toma", options: ["En reposo", "Al despertar", "Antes de dormir", "Después de actividad", "Con molestia"], default: "En reposo" },
+    { name: "arm", kind: "select", label: "Brazo", options: ["Izquierdo", "Derecho"], default: "Izquierdo" },
+    { name: "notes", kind: "textarea", label: "Notas", full: true, placeholder: "Cómo te sentías, si tomaste algún medicamento..." }
   ],
   note: [
     { name: "profileId", kind: "profile" },
     { name: "date", kind: "date", label: "Fecha", default: todayISO },
     { name: "category", kind: "select", label: "Categoría", options: ["Observación", "Pregunta médica", "Patrón", "Recordatorio", "Idea", "Otro"], default: "Observación" },
+    { name: "bodyPart", kind: "zone", label: "Zona del cuerpo relacionada" },
     { name: "title", kind: "text", label: "Título", required: true, requiredMsg: "Escribe un título.", full: true, placeholder: "Título corto" },
     { name: "content", kind: "textarea", label: "Contenido", required: true, requiredMsg: "Escribe el contenido.", full: true }
   ]
@@ -199,6 +220,19 @@ function renderField(field, values) {
   switch (field.kind) {
     case "bodyChecklist":
       return renderBodyChecklist(values, true);
+    case "zone":
+      return `
+        <label class="${fullClass}">
+          <span>${esc(field.label)}</span>
+          <select name="${field.name}" ${req}>
+            ${field.required ? "" : `<option value="" ${value ? "" : "selected"}>Sin zona específica</option>`}
+            ${BODY_MAP.map((section) => `
+              <optgroup label="${esc(section.label)}">
+                ${section.zones.map((zone) => `<option value="${esc(zone)}" ${String(value) === zone ? "selected" : ""}>${esc(zone)}</option>`).join("")}
+              </optgroup>
+            `).join("")}
+          </select>
+        </label>`;
     case "checkbox":
       return `<label class="${fullClass}"><span><input type="checkbox" name="${field.name}" ${values?.[field.name] ? "checked" : ""}> ${esc(field.label)}</span></label>`;
     case "range":

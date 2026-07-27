@@ -25,7 +25,7 @@ import {
 import { APP_CONFIG, DEFAULT_PROFILES } from "./config.js";
 
 export const isDemoMode = new URLSearchParams(window.location.search).has("demo");
-const DEMO_KEY = "healthtrackerac-demo-data-v2";
+const DEMO_KEY = "healthtrackerac-demo-data-v3";
 
 let app = null;
 let auth = null;
@@ -171,6 +171,24 @@ function demoSeed() {
       }
     ],
     treatments: [],
+    vitals: [0, 1, 2, 3, 4, 5, 6].map((back) => {
+      const systolic = [118, 124, 131, 122, 127, 119, 121][back];
+      const diastolic = [76, 80, 84, 78, 81, 75, 77][back];
+      return {
+        id: `demo-bp-${back}`,
+        profileId: "profile-alek",
+        date: offsetDate(-back),
+        time: "08:00",
+        systolic,
+        diastolic,
+        pulse: 68 + back,
+        moment: "Al despertar",
+        arm: "Izquierdo",
+        notes: "",
+        createdAt: new Date(Date.now() - back * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - back * 86400000).toISOString()
+      };
+    }),
     notes: [
       {
         id: "demo-note-1",
