@@ -52,6 +52,7 @@ export const RECORD_TYPES = [
   { id: "appointment", label: "Cita", icon: "☉", hint: "Agenda médica" },
   { id: "checkup", label: "Control", icon: "✓", hint: "Chequeo periódico" },
   { id: "vitals", label: "Presión arterial", icon: "♥", hint: "Presión y pulso" },
+  { id: "weight", label: "Peso", icon: "⚖", hint: "Peso y evolución" },
   { id: "treatment", label: "Tratamiento", icon: "✚", hint: "Medicamento o indicación" },
   { id: "note", label: "Nota", icon: "✎", hint: "Observación libre" }
 ];
@@ -64,7 +65,8 @@ export const COLLECTION_BY_TYPE = {
   checkup: "checkups",
   treatment: "treatments",
   note: "notes",
-  vitals: "vitals"
+  vitals: "vitals",
+  weight: "weights"
 };
 
 const TYPE_BY_COLLECTION = Object.fromEntries(
@@ -186,6 +188,13 @@ const RECORD_SCHEMAS = {
     { name: "moment", kind: "select", label: "Momento de la toma", options: ["En reposo", "Al despertar", "Antes de dormir", "Después de actividad", "Con molestia"], default: "En reposo" },
     { name: "arm", kind: "select", label: "Brazo", options: ["Izquierdo", "Derecho"], default: "Izquierdo" },
     { name: "notes", kind: "textarea", label: "Notas", full: true, placeholder: "Cómo te sentías, si tomaste algún medicamento..." }
+  ],
+  weight: [
+    { name: "profileId", kind: "profile" },
+    { name: "date", kind: "date", label: "Fecha", required: true, requiredMsg: "Indica la fecha.", default: todayISO },
+    { name: "weightKg", kind: "number", label: "Peso (kg)", min: 1, max: 500, step: 0.1, required: true, requiredMsg: "Indica el peso en kilogramos." },
+    { name: "time", kind: "time", label: "Hora" },
+    { name: "notes", kind: "textarea", label: "Notas", full: true, placeholder: "Ej. En ayunas, después de ejercicio o alguna observación..." }
   ],
   note: [
     { name: "profileId", kind: "profile" },

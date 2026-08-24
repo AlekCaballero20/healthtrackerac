@@ -36,11 +36,13 @@ import {
   pendingCheckups,
   recordsForZone,
   sortedVitals,
+  sortedWeights,
   trendLabel,
   zoneStatus,
   latestVitals,
   upcomingAppointments,
-  weekSeries
+  weekSeries,
+  weightSeries
 } from "./domain.js";
 import { MORE_ITEMS, typeLabel, renderBodyChecklist } from "./records.js";
 
@@ -383,13 +385,14 @@ const TREND_METRICS = [
   { id: "energy", label: "Energía", max: 10, unit: "/10", source: "daily" },
   { id: "painLevel", label: "Dolor", max: 10, unit: "/10", source: "daily" },
   { id: "sleepHours", label: "Sueño", max: 12, unit: " h", source: "daily" },
-  { id: "bloodPressure", label: "Presión", max: 160, min: 40, unit: "", source: "vitals" }
+  { id: "bloodPressure", label: "Presión", max: 160, min: 40, unit: "", source: "vitals" },
+  { id: "weight", label: "Peso", max: 120, min: 30, unit: " kg", source: "weights" }
 ];
 
 // Gráfica de línea sencilla, dibujada con SVG (sin librerías externas).
 function renderWeekTrend(data) {
   const meta = TREND_METRICS.find((item) => item.id === state.trendMetric) || TREND_METRICS[0];
-  const series = meta.source === "vitals" ? bpSeries(data) : weekSeries(data.dailyLogs, meta.id);
+  const series = meta.source === "vitals" ? bpSeries(data) : meta.source === "weights" ? weightSeries(data, 7) : weekSeries(data.dailyLogs, meta.id);
   const trend = trendLabel(series);
 
   const body = series.length < 2
@@ -525,6 +528,7 @@ export function renderTracking() {
       </section>
 
       ${renderVitalsPanel(data)}
+      ${renderWeightPanel(data)}
 
       <section class="panel">
         <div class="section-header"><h2 class="section-title">Registros recientes</h2></div>
@@ -760,7 +764,7 @@ export function renderTimeline() {
         <input id="timelineSearch" value="${esc(state.timelineSearch)}" placeholder="Buscar por síntoma, nota, especialidad...">
         <select id="timelineType">
           <option value="all" ${state.timelineType === "all" ? "selected" : ""}>Todos los tipos</option>
-          ${["daily", "symptom", "body", "vitals", "appointment", "checkup", "treatment", "note"].map((type) => `<option value="${type}" ${state.timelineType === type ? "selected" : ""}>${typeLabel(type)}</option>`).join("")}
+          ${["daily", "symptom", "body", "vitals", "weight", "appointment", "checkup", "treatment", "note"].map((type) => `<option value="${type}" ${state.timelineType === type ? "selected" : ""}>${typeLabel(type)}</option>`).join("")}
         </select>
         <button type="button" class="ghost-button" data-action="open-create">+ Registrar</button>
       </div>
@@ -1004,6 +1008,42 @@ function renderVitalsCard(item) {
     </article>`;
 }
 
+// --- Peso ---
+
+function renderWeightPanel(data) {
+  const list = sortedWeights(data);
+  const latest = list[0];
+  const previous = list[1];
+  const change = latest && previous ? Math.round((Number(latest.weightKg) - Number(previous.weightKg)) * 10) / 10 : null;
+  const series = weightSeries(data);
+
+  return `
+    <section class="panel">
+      <div class="section-header">
+        <h2 class="section-title">Seguimiento de peso</h2>
+        <button type="button" class="primary-button" data-action="open-create" data-type="weight">Registrar peso</button>
+      </div>
+      ${latest ? `
+        <div class="bp-latest">
+          <div class="bp-value"><strong>${esc(latest.weightKg)} kg</strong><small>${formatDate(latest.date)}${latest.time ? ` · ${esc(latest.time)}` : ""}</small></div>
+          ${change !== null ? `<span class="badge ${change > 0 ? "warning" : change < 0 ? "success" : "neutral"}">${change > 0 ? "+" : ""}${change} kg</span>` : ""}
+        </div>
+        ${series.length > 1 ? `<div class="trend-scroll">${lineChart(series, { max: Math.max(120, ...series.map((item) => item.value + 2)), min: Math.max(0, Math.min(...series.map((item) => item.value - 2))), unit: " kg" })}</div>` : ""}
+        <p class="section-subtitle">${change === null ? "Registra al menos dos mediciones para comparar tu cambio." : `Comparado con la medición anterior: ${change > 0 ? "+" : ""}${change} kg.`}</p>
+        <div class="timeline-grid">${list.slice(0, 8).map(renderWeightCard).join("")}</div>
+      ` : emptyState("Aún no has registrado tu peso", "Guarda una medición y aquí verás el historial y su evolución.")}
+    </section>`;
+}
+
+function renderWeightCard(item) {
+  return `
+    <article class="record-card">
+      <div class="record-header"><div><strong>${esc(item.weightKg)} kg</strong><p>${formatDate(item.date)}${item.time ? ` · ${esc(item.time)}` : ""} · ${esc(profileName(item.profileId))}</p></div></div>
+      ${item.notes ? `<p>${esc(item.notes)}</p>` : ""}
+      <div class="card-actions">${editButton("weights", item.id)}${deleteButton("weights", item.id)}</div>
+    </article>`;
+}
+
 // --- Notas ---
 
 export function renderNotes() {
@@ -1119,6 +1159,7 @@ const DATA_GROUPS = [
   { collection: "checkups", label: "Controles", icon: "✓" },
   { collection: "treatments", label: "Tratamientos", icon: "✚" },
   { collection: "vitals", label: "Tomas de presión", icon: "♥" },
+  { collection: "weights", label: "Registros de peso", icon: "⚖" },
   { collection: "notes", label: "Notas", icon: "✎" }
 ];
 

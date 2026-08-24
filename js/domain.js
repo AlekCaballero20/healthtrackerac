@@ -180,6 +180,18 @@ export function buildTimeline(data) {
       tone: level ? level.tone : "neutral"
     });
   });
+  (data.weights || []).forEach((item) => {
+    rows.push({
+      type: "weight",
+      profileId: item.profileId,
+      profileName: profileName(item.profileId),
+      title: `Peso ${item.weightKg} kg`,
+      description: item.notes || "Registro de peso",
+      createdAt: `${item.date || todayISO()}T${item.time || "12:00"}:00`,
+      meta: "Seguimiento de peso",
+      tone: "info"
+    });
+  });
   data.notes.forEach((item) => rows.push({ type: "note", profileId: item.profileId, profileName: profileName(item.profileId), title: item.title, description: item.content, createdAt: item.createdAt || item.date, meta: item.category, tone: "neutral" }));
   return sortDesc(rows, "createdAt");
 }
@@ -229,6 +241,26 @@ export function bpSeries(data, limit = 7) {
       value: Math.round(list.reduce((sum, item) => sum + Number(item.systolic || 0), 0) / list.length),
       low: Math.round(list.reduce((sum, item) => sum + Number(item.diastolic || 0), 0) / list.length)
     }));
+}
+
+export function sortedWeights(data) {
+  return sortDesc(data.weights || [], "date");
+}
+
+// Serie de peso: un punto por fecha (promedio si hubo más de un registro ese día).
+export function weightSeries(data, limit = 14) {
+  const byDate = new Map();
+  (data.weights || []).forEach((item) => {
+    if (!item.date || !Number.isFinite(Number(item.weightKg))) return;
+    const bucket = byDate.get(item.date) || [];
+    bucket.push(Number(item.weightKg));
+    byDate.set(item.date, bucket);
+  });
+  return [...byDate.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .slice(0, limit)
+    .reverse()
+    .map(([date, values]) => ({ date, value: Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10 }));
 }
 
 // --- Mapa del cuerpo ---

@@ -11,7 +11,7 @@ Nueva versión de la app de seguimiento de bienestar para Alek y Cata.
 - Edición de cualquier registro (no solo crear/borrar) reutilizando el diálogo.
 - Tratamientos con frecuencia/horarios, registro de tomas (adherencia) y alertas de fin.
 - Adjuntar exámenes y fórmulas (imagen/PDF) a citas, controles y tratamientos.
-- Gráficas de evolución de energía, dolor y sueño en Seguimiento.
+- Gráficas de evolución de energía, dolor, sueño y peso en Seguimiento.
 - Historial unificado con búsqueda y filtro por tipo.
 - Exportación e importación de backup JSON.
 - Modo demo local usando `?demo=1`.
@@ -75,6 +75,8 @@ appointments
 checkups
 treatments
 notes
+vitals
+weights
 ```
 
 ## Correos autorizados

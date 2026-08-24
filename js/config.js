@@ -22,7 +22,8 @@ export const APP_CONFIG = Object.freeze({
     "checkups",
     "treatments",
     "notes",
-    "vitals"
+    "vitals",
+    "weights"
   ]
 });
 
